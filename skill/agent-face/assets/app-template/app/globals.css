@@ -1,0 +1,40 @@
+@import "tailwindcss";
+
+/* Dark-first theme tokens for the agent-face UI. The particle face lives on a
+   near-black stage, so the app defaults to dark and exposes CSS variables that
+   components read via Tailwind v4's @theme inline mapping. */
+:root {
+  --background: #07070a;
+  --foreground: #e8e8ee;
+  --muted: #16161d;
+  --muted-foreground: #9a9aa8;
+  --accent: #6ee7ff;
+  --border: #23232e;
+  --card: #101018;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-border: var(--border);
+  --color-card: var(--card);
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+    Helvetica, Arial, sans-serif;
+  --font-mono: ui-monospace, "SFMono-Regular", "Menlo", "Consolas", monospace;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}

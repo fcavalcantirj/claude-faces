@@ -1,0 +1,27 @@
+# Scaffolded app — ignore install/build output and secrets.
+
+# dependencies
+node_modules/
+
+# next.js
+.next/
+out/
+build/
+*.tsbuildinfo
+
+# env — never commit secrets
+.env
+.env*.local
+
+# vercel
+.vercel/
+
+# generated at build time from node_modules (scripts/setup-vad-assets.mjs)
+public/vad/
+
+# ML model cache (browser Whisper / Kokoro downloads)
+public/models/
+
+# misc
+.DS_Store
+*.log

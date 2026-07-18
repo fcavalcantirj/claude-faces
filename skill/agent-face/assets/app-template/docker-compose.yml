@@ -1,0 +1,49 @@
+# ============================================================================
+# claude-faces — self-host stack (run next to your agent)
+# ============================================================================
+# Runs the face app from the multi-stage Dockerfile. The whole point of
+# self-hosting is Mode B: put this container on the SAME private network as an
+# agent you already run (Hermes / openclaw / Claude Code bridge / Ollama) and
+# point AGENT_BRIDGE_URL at the agent's private address — the face reuses that
+# agent as its brain with NO public tunnel.
+#
+#   cp .env.example .env.local   # fill in AGENT_BRIDGE_* and/or provider keys
+#   docker compose up --build    # serves http://localhost:${PORT:-3000}
+#
+# See skill/agent-face/references/deploy.md for the full self-host walkthrough.
+# ----------------------------------------------------------------------------
+
+services:
+  claude-faces:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: claude-faces
+    # Publish the app. Override the host port with PORT in .env.local.
+    ports:
+      - "${PORT:-3000}:3000"
+    # All configuration is optional and lives in .env.local (never committed).
+    # Every provider key + agent-bridge var from .env.example is passed through.
+    env_file:
+      - .env.local
+    environment:
+      # Self-host mode relaxes the Vercel-only guard so the agent-bridge is
+      # allowed to reach a PRIVATE-network URL (no public HTTPS tunnel needed).
+      SELF_HOST: "1"
+      # Point this at your agent's private address on the shared network, e.g.
+      # http://ollama:11434, http://hermes:8080, or http://172.17.0.1:11434 to
+      # reach a service on the Docker host. Falls back to .env.local if unset.
+      AGENT_BRIDGE_URL: "${AGENT_BRIDGE_URL:-}"
+    restart: unless-stopped
+    # If your agent runs as another service in THIS compose file, add it here
+    # and reference it by service name in AGENT_BRIDGE_URL. Example:
+    #
+    # networks:
+    #   - agentnet
+    #
+    # ollama:
+    #   image: ollama/ollama
+    #   networks: [agentnet]
+    #
+    # networks:
+    #   agentnet:

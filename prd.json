@@ -563,7 +563,7 @@
       "Verify: node skill/agent-face/scripts/sync-template.mjs --check reports parity.",
       "Verify: copy assets/app-template to a temp dir, run npm install && npm run build, and confirm it builds standalone."
     ],
-    "passes": false,
+    "passes": true,
     "headless_verifiable": true
   },
   {

@@ -1,0 +1,118 @@
+'use client'
+
+// EIDOLON skin — the default MVP renderer, wrapping the existing R3F particle
+// face (components/agent-face.tsx) behind the imperative FaceSkin interface.
+//
+// The heavy renderer (Three.js / R3F / the AgentFace component) is loaded lazily
+// inside mount() via dynamic import, so merely constructing the controller and
+// pushing setEmotion/setMouth/setViseme updates is cheap and framework-free
+// (importable in a headless test without pulling WebGL). mount() spins up a
+// dedicated React root in the container; setters drive it via a ref-based mouth
+// buffer (no re-render on the 60fps loop) and a tiny emotion/speaking listener.
+
+import { createElement, type RefObject } from 'react'
+import type { Emotion } from '@/lib/face-points'
+import {
+  SILENCE_VISEME,
+  dominantViseme,
+  type VisemeScores,
+} from '@/lib/face/visemes'
+import {
+  createInitialState,
+  type FaceSkin,
+  type FaceSkinState,
+} from '@/lib/face/skin'
+import type { MouthState } from '@/components/agent-face'
+
+function clamp01(n: number): number {
+  if (!Number.isFinite(n)) return 0
+  return n < 0 ? 0 : n > 1 ? 1 : n
+}
+
+/** Callbacks the mounted view registers so imperative updates reach React state. */
+export interface EidolonViewBindings {
+  onEmotion: (emotion: Emotion) => void
+  onSpeaking: (on: boolean) => void
+}
+
+/** The contract the lazy-loaded view needs from the controller (no React import). */
+export interface EidolonSkinDriver {
+  /** Live mouth buffer the R3F useFrame loop reads each frame (no re-render). */
+  readonly mouthRef: RefObject<MouthState>
+  /** Current lifecycle state, for the view's initial props. */
+  getState(): FaceSkinState
+  /** Register view callbacks; returns an unbind function for effect cleanup. */
+  bindView(bindings: EidolonViewBindings): () => void
+}
+
+type ReactRoot = { unmount(): void }
+
+class EidolonSkin implements FaceSkin, EidolonSkinDriver {
+  readonly id = 'eidolon' as const
+  readonly mouthRef: RefObject<MouthState> = {
+    current: { open: 0, viseme: SILENCE_VISEME },
+  }
+
+  private state = createInitialState()
+  private bindings: EidolonViewBindings | null = null
+  private root: ReactRoot | null = null
+
+  setEmotion(emotion: Emotion): void {
+    this.state.emotion = emotion
+    this.bindings?.onEmotion(emotion)
+  }
+
+  setSpeaking(on: boolean): void {
+    this.state.speaking = on
+    this.bindings?.onSpeaking(on)
+  }
+
+  setMouth(open: number, viseme?: string): void {
+    const o = clamp01(open)
+    this.mouthRef.current.open = o
+    this.state.mouth.open = o
+    if (viseme) {
+      this.mouthRef.current.viseme = viseme
+      this.state.mouth.viseme = viseme
+    }
+  }
+
+  setViseme(scores: VisemeScores): void {
+    const viseme = dominantViseme(scores)
+    this.mouthRef.current.viseme = viseme
+    this.state.mouth.viseme = viseme
+  }
+
+  getState(): FaceSkinState {
+    return this.state
+  }
+
+  bindView(bindings: EidolonViewBindings): () => void {
+    this.bindings = bindings
+    return () => {
+      if (this.bindings === bindings) this.bindings = null
+    }
+  }
+
+  async mount(container: HTMLElement): Promise<void> {
+    const [{ createRoot }, { EidolonSkinView }] = await Promise.all([
+      import('react-dom/client'),
+      import('./eidolon-skin-view'),
+    ])
+    const root = createRoot(container)
+    this.root = root
+    root.render(createElement(EidolonSkinView, { driver: this }))
+  }
+
+  dispose(): void {
+    this.bindings = null
+    if (this.root) {
+      this.root.unmount()
+      this.root = null
+    }
+  }
+}
+
+export function createEidolonSkin(): FaceSkin {
+  return new EidolonSkin()
+}
