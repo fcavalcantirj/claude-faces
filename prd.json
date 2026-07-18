@@ -829,7 +829,7 @@
       "Verify: analyser volume is non-flat and time-aligned with the fixture audio; mouth displacement tracks volume.",
       "Verify: silence produces near-zero mouth motion."
     ],
-    "passes": false,
+    "passes": true,
     "headless_verifiable": false
   },
   {

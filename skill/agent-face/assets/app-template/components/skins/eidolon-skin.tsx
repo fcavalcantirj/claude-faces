@@ -102,6 +102,20 @@ class EidolonSkin implements FaceSkin, EidolonSkinDriver {
     const root = createRoot(container)
     this.root = root
     root.render(createElement(EidolonSkinView, { driver: this }))
+    this.exposeE2EHook()
+  }
+
+  /**
+   * Opt-in E2E hook: with `?e2e=1` in the URL, expose the live mouth buffer so a
+   * browser test can prove the mouth tracks REAL audio rather than a fixed sine.
+   * Read-only and gated on the query param, so a normal session never sees it.
+   */
+  private exposeE2EHook(): void {
+    if (typeof window === 'undefined') return
+    if (!new URLSearchParams(window.location.search).has('e2e')) return
+    ;(window as unknown as { __agentFaceMouth?: () => MouthState }).__agentFaceMouth = () => ({
+      ...this.mouthRef.current,
+    })
   }
 
   dispose(): void {

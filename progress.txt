@@ -1800,3 +1800,39 @@ Fixed the code and re-ran every gate capturing $? directly. Never infer a gate's
 a pipeline.
 Verify (all RUN, exit codes captured directly): typecheck EXIT=0; npm test EXIT=0 with 429/429
 across 37 files (up from 423/36); npm run build EXIT=0. Flipped passes -> true.
+
+2026-07-18: [frontend] Eval: lip-sync fires on real audio — DONE.
+lib/lipsync.test.ts already covers the engine's envelope maths headlessly, but jsdom has NO
+Web Audio, so the claim that actually matters was unproven: that a genuine recorded waveform,
+decoded and analysed by a genuine AnalyserNode, yields a non-flat envelope. tests/e2e/
+lipsync.spec.ts (4 tests, real chromium) proves it. The fixture tts-sample.wav is served via
+page.route at a stable URL so nothing has to be copied into public/. Test 1 decodes the real
+clip, runs it through a real AnalyserNode (deliberately NOT connected to destination — analyse
+without audible playback) and samples RMS across the clip plus trailing silence, asserting:
+peak > 0.01 (speech genuinely present, analyser not dead); peak > mean * 1.5 (envelope NON-FLAT
+— a fixed sine or stuck value would collapse these together, which is precisely the "fake sine
+mouth" failure this eval exists to catch); and the speech window averaging > 2x the trailing
+silence window (time alignment). Test 2 pushes a genuinely empty buffer through the same graph
+and asserts peak < 0.001, so silence really does read as silence. Tests 3 and 4 cover the
+mouth test hook the task calls for: EidolonSkin.mount() now exposes window.__agentFaceMouth()
+returning a COPY of the live mouth buffer, gated on ?e2e=1 — test 3 asserts it appears under
+the flag and that the mouth rests closed (open < 0.05) with nothing speaking, and test 4 is the
+NEGATIVE case asserting the hook is undefined without the flag, so a normal session can never
+see it.
+MEASUREMENT BUG I HIT AND FIXED (my own, not the app's): the first run failed with an empty
+silence window. I had assumed a fixed 25ms sample cadence and indexed by (ms / 25), but each
+loop iteration costs more than its setTimeout, so the computed index overran the array. Fixed
+by recording each sample's REAL elapsed timestamp and windowing by time rather than by index.
+Worth noting because the assertion caught a flaw in my own instrumentation, which is what a
+non-vacuous assertion is for.
+Root app file changed (components/skins/eidolon-skin.tsx) so sync-template.mjs was re-run in
+the same task: 77 files, 1 updated, parity restored.
+Verify (all RUN, exit codes captured directly): typecheck EXIT=0; npm test EXIT=0 429/429;
+npm run build EXIT=0; full `npx playwright test` EXIT=0 with 7 passed + 1 skipped (the skip is
+the STT_REAL_MODEL-gated spec). Flipped passes -> true.
+UAT: confirm by EAR and EYE that the mouth actually tracks the voice — run the app, speak, and
+watch whether the mouth opens on loud syllables and closes between words, and that it does not
+flap on a fixed rhythm while audio is silent. This eval proves the analyser envelope is real
+and non-flat and that the mouth rests closed, but the full correlation (mouth displacement
+tracking TTS volume through the live orchestrator) needs a brain + TTS key and a human
+watching the face, which no headless assertion can stand in for.
