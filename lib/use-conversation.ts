@@ -17,6 +17,9 @@ import {
   type ConversationTurn,
   type InputMode,
 } from '@/lib/conversation'
+import type { SttMode } from '@/lib/stt'
+import type { TtsEngine } from '@/lib/tts'
+import type { FaceSkinId } from '@/lib/face/skin'
 
 // Process-wide default store so the whole app shares one transcript without a
 // provider component. Tests / embeds can inject their own store into the hook.
@@ -44,6 +47,12 @@ export interface UseConversation {
   setModel(model: string | null): void
   /** Choose push-to-talk vs hands-free VAD (mutually exclusive). */
   setInputMode(mode: InputMode): void
+  /** Choose the speech-to-text path (browser | hosted | auto). */
+  setSttMode(mode: SttMode): void
+  /** Choose the voice-out engine (web-speech | openai | kokoro). */
+  setTtsEngine(engine: TtsEngine): void
+  /** Choose the face renderer skin (eidolon | talkinghead). */
+  setFaceSkin(skin: FaceSkinId): void
   /** Set the persona / system prompt. */
   setSystem(system: string): void
   /** Clear the transcript (keeps provider/model + persona). */
@@ -88,6 +97,15 @@ export function useConversation(
     (mode: InputMode) => store.setInputMode(mode),
     [store],
   )
+  const setSttMode = useCallback((mode: SttMode) => store.setSttMode(mode), [store])
+  const setTtsEngine = useCallback(
+    (engine: TtsEngine) => store.setTtsEngine(engine),
+    [store],
+  )
+  const setFaceSkin = useCallback(
+    (skin: FaceSkinId) => store.setFaceSkin(skin),
+    [store],
+  )
   const setSystem = useCallback((system: string) => store.setSystem(system), [store])
   const reset = useCallback(() => store.reset(), [store])
   const toMessages = useCallback(() => store.toMessages(), [store])
@@ -102,6 +120,9 @@ export function useConversation(
       setProvider,
       setModel,
       setInputMode,
+      setSttMode,
+      setTtsEngine,
+      setFaceSkin,
       setSystem,
       reset,
       toMessages,
@@ -115,6 +136,9 @@ export function useConversation(
       setProvider,
       setModel,
       setInputMode,
+      setSttMode,
+      setTtsEngine,
+      setFaceSkin,
       setSystem,
       reset,
       toMessages,

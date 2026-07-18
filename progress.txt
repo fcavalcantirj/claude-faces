@@ -1074,3 +1074,54 @@ Kokoro engine selected in settings, confirm a reply is spoken FULLY OFFLINE (air
 first download) and that its audio drives the FFT analyser lip-sync (visibly better than the Web Speech
 estimate); confirm a Kokoro load failure degrades to Web Speech without a crash; confirm the model caches
 (Cache Storage) so a reload shows "cached/ready" and does not re-download.
+
+2026-07-18: [frontend] Build the settings panel with brain picker, keys hint, voice, face,
+and STT mode — DONE. Built the drawer where a user configures the face — which brain answers,
+which model, how they talk to it, how it hears/speaks, and which skin renders — driven entirely
+off the SECRET-FREE /api/config probe so only server-capable options are offered and keys are
+NEVER collected client-side. Split into a headlessly-tested pure view-model + a thin UI shell +
+a new catalog route:
+• app/api/models/route.ts (GET ?provider=<id>, runtime nodejs, force-dynamic) proxies the chosen
+  adapter's listModels(env) SERVER-SIDE (some catalogs need the key) and returns non-secret
+  {provider, models, default} — the default is the adapter's isDefault model (else first). Resolves
+  the adapter via resolveAdapter so an unknown id -> 400 unknown_provider and a keyless/unreachable
+  brain -> 400 unavailable (the SAME typed AdapterError shape /api/chat uses), and NEVER calls
+  listModels() on an unavailable adapter. A withTimeout(4s) guard keeps a slow upstream /models
+  fetch (OpenRouter) from hanging the picker; short cache header; no key ever echoed.
+• lib/settings/panel-model.ts — the pure, DOM-free branching logic: brainOptions(config) lists every
+  Mode A provider (available ones selectable, unavailable ones DISABLED with an env-config hint like
+  "Set ANTHROPIC_API_KEY on the server…") and appends the Mode B agent-bridge ONLY when reachable
+  (hidden entirely otherwise — Verify #2); selectableBrains/hasNoBrain; resolveActiveProvider(selected,
+  config) keeps a still-available pick else falls back to config.defaultProvider -> first available ->
+  null; sttModeOptions (browser/auto always, hosted gated on GROQ/OPENAI key + reason), ttsEngineOptions
+  (web-speech/kokoro always local, openai gated on OPENAI key + reason), faceSkinOptions (both selectable;
+  talkinghead degrades to eidolon at runtime, so not hard-disabled).
+• Extended lib/conversation.ts settings with sttMode (default 'auto'), ttsEngine (default 'web-speech'),
+  faceSkin (default 'eidolon') — all persisted to the versioned localStorage blob with normalize*()
+  coercion of garbage values, plus setSttMode/setTtsEngine/setFaceSkin setters (used type-only imports
+  of SttMode/TtsEngine/FaceSkinId so the state module never pulls the heavy TTS/STT/skin runtimes).
+  Wired the three setters through lib/use-conversation.ts. So every choice survives reload and — since
+  the store is the single source of truth the orchestrator reads — takes effect immediately, no refresh.
+• components/settings-panel.tsx — the 'use client' drawer (role=dialog, scrim + right-side aside): fetches
+  /api/config on open (injectable for tests/embeds), renders the brain radio list (unavailable disabled +
+  reason shown), a MODEL <select> populated from /api/models for the active Mode A provider (preselecting
+  the server default when the user hasn't chosen a valid model; agent-bridge has no model picker), an
+  INPUT segmented toggle (push-to-talk | hands-free VAD), and RadioGroups for SPEECH-TO-TEXT / VOICE (TTS)
+  / FACE SKIN, each disabling unavailable options with their reason. Footer states keys stay server-side.
+  All persistence flows through useConversation() setters. Also mounted it behind a gear button in the
+  demo app/page.tsx so it's a real, UAT-able surface (the orchestrator task later wires it into the full UI).
+TDD: wrote lib/settings/panel-model.test.ts and app/api/models/route.test.ts FIRST. Verify (all headless,
+all pass): `npm test` 351/351 green incl. new specs — brainOptions lists/disables/hides correctly (agent-
+bridge hidden when unreachable, shown when reachable), resolveActiveProvider fallback chain, STT/TTS/skin
+availability gating, and a store round-trip proving sttMode/ttsEngine/faceSkin persist + restore on reload,
+survive reset, and coerce garbage to defaults; the /api/models route returns the catalog + default for an
+available brain, 400s (unavailable, without calling listModels) a keyless brain, 400s unknown/missing
+provider, and leaks no key. `npm run typecheck` clean; `npm run build` compiles and now emits ƒ /api/models.
+Additionally verified over REAL HTTP with `next start` + a fake ANTHROPIC_API_KEY: /api/models?provider=
+anthropic returned the curated catalog with claude-opus-4-8 preselected; provider=nope -> 400 unknown_provider;
+no provider -> 400 bad_request; keyless groq -> 400 unavailable. Flipped this task's passes -> true.
+UAT (headless_verifiable:true; browser-only visuals deferred): the availability/persistence LOGIC is fully
+headlessly verified. A human can additionally confirm in a browser that opening the drawer shows only
+server-available brains selectable (others greyed with a reason), that changing model/voice/skin/STT-mode
+updates behavior immediately and survives a reload, and that the agent-bridge row is absent when /api/config
+reports it unreachable.

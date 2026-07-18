@@ -97,6 +97,9 @@ describe('conversation store', () => {
       provider: 'groq',
       model: 'llama-3.1-8b-instant',
       inputMode: 'push-to-talk',
+      sttMode: 'auto',
+      ttsEngine: 'web-speech',
+      faceSkin: 'eidolon',
     })
   })
 
@@ -128,6 +131,9 @@ describe('conversation store', () => {
       provider: 'anthropic',
       model: 'claude-opus-4-8',
       inputMode: 'push-to-talk',
+      sttMode: 'auto',
+      ttsEngine: 'web-speech',
+      faceSkin: 'eidolon',
     })
     expect(reloaded.toMessages()).toEqual([
       { role: 'user', content: 'remember me' },

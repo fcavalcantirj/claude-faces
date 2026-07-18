@@ -7,7 +7,9 @@
 // orchestrator UI in the "Wire the full conversation orchestrator" task.
 import dynamic from 'next/dynamic'
 import { useEffect, useRef, useState } from 'react'
+import { Settings } from 'lucide-react'
 import { FaceHud } from '@/components/face-hud'
+import { SettingsPanel } from '@/components/settings-panel'
 import type { MouthState } from '@/components/agent-face'
 import type { Emotion } from '@/lib/face-points'
 import { estimateFeatures } from '@/lib/lipsync'
@@ -21,6 +23,7 @@ const AgentFace = dynamic(
 
 export default function Home() {
   const [emotion, setEmotion] = useState<Emotion>('neutral')
+  const [settingsOpen, setSettingsOpen] = useState(false)
   // Ref-based mouth state so the 60fps particle loop never re-renders React.
   const mouthRef = useRef<MouthState>({ open: 0, viseme: 'viseme_sil' })
 
@@ -59,6 +62,15 @@ export default function Home() {
         mouthRef={mouthRef}
       />
       <FaceHud emotion={emotion} onEmotionChange={setEmotion} />
+      <button
+        type="button"
+        aria-label="Open settings"
+        onClick={() => setSettingsOpen(true)}
+        className="pointer-events-auto absolute right-4 top-3 z-40 rounded-sm border border-border/60 p-2 text-muted-foreground transition-colors hover:text-foreground md:right-6"
+      >
+        <Settings className="h-4 w-4" aria-hidden="true" />
+      </button>
+      <SettingsPanel open={settingsOpen} onClose={() => setSettingsOpen(false)} />
     </main>
   )
 }

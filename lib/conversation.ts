@@ -16,6 +16,11 @@
 
 import type { ChatMessage } from '@/lib/providers'
 import { DEFAULT_PERSONA_PROMPT } from '@/lib/persona'
+// Type-only imports (erased at runtime) so the store stays framework-free and
+// never pulls the heavy TTS/STT/skin runtimes into a plain state module.
+import type { SttMode } from '@/lib/stt'
+import type { TtsEngine } from '@/lib/tts'
+import type { FaceSkinId } from '@/lib/face/skin'
 
 /** A role a turn can carry. `system` turns are metadata, never sent as messages. */
 export type ConversationRole = 'user' | 'assistant' | 'system'
@@ -42,12 +47,29 @@ export type InputMode = 'push-to-talk' | 'hands-free'
 /** Default input mode when none has been chosen/persisted. */
 export const DEFAULT_INPUT_MODE: InputMode = 'push-to-talk'
 
+/**
+ * Voice/face defaults. Defined locally (not imported from the TTS/STT/skin
+ * runtimes) so this state module stays free of their browser-heavy code:
+ *   • STT `auto` — browser-first, hosted fallback (the $0/private default).
+ *   • TTS `web-speech` — the zero-infra browser voice (no key needed).
+ *   • Face `eidolon` — the always-present particle renderer.
+ */
+export const DEFAULT_STT_MODE: SttMode = 'auto'
+export const DEFAULT_TTS_ENGINE: TtsEngine = 'web-speech'
+export const DEFAULT_FACE_SKIN: FaceSkinId = 'eidolon'
+
 /** Which brain is currently selected. `null` = not chosen yet. */
 export interface ConversationSettings {
   provider: string | null
   model: string | null
   /** Push-to-talk vs hands-free VAD (mutually exclusive). */
   inputMode: InputMode
+  /** Speech-to-text path: browser Whisper, hosted, or auto. */
+  sttMode: SttMode
+  /** Voice-out engine: Web Speech, OpenAI, or local Kokoro. */
+  ttsEngine: TtsEngine
+  /** Which face renderer drives the visuals. */
+  faceSkin: FaceSkinId
 }
 
 /** The full, immutable store state. */
@@ -112,7 +134,13 @@ export interface ConversationStore {
   setModel(model: string | null): void
   /** Set the input mode (push-to-talk vs hands-free VAD). */
   setInputMode(mode: InputMode): void
-  /** Set provider + model + input mode together. */
+  /** Set the speech-to-text path (browser | hosted | auto). */
+  setSttMode(mode: SttMode): void
+  /** Set the voice-out engine (web-speech | openai | kokoro). */
+  setTtsEngine(engine: TtsEngine): void
+  /** Set the face renderer skin (eidolon | talkinghead). */
+  setFaceSkin(skin: FaceSkinId): void
+  /** Set any subset of settings together. */
   setSettings(settings: Partial<ConversationSettings>): void
   /** Clear the transcript (keeps provider/model + persona) and persist the clear. */
   reset(): void
@@ -139,7 +167,14 @@ interface PersistedConversation {
 }
 
 function emptySettings(): ConversationSettings {
-  return { provider: null, model: null, inputMode: DEFAULT_INPUT_MODE }
+  return {
+    provider: null,
+    model: null,
+    inputMode: DEFAULT_INPUT_MODE,
+    sttMode: DEFAULT_STT_MODE,
+    ttsEngine: DEFAULT_TTS_ENGINE,
+    faceSkin: DEFAULT_FACE_SKIN,
+  }
 }
 
 /** Coerce a persisted value to a valid InputMode (defaulting missing/garbage). */
@@ -147,6 +182,27 @@ function normalizeInputMode(value: unknown): InputMode {
   return value === 'hands-free' || value === 'push-to-talk'
     ? value
     : DEFAULT_INPUT_MODE
+}
+
+/** Coerce a persisted value to a valid SttMode (defaulting missing/garbage). */
+function normalizeSttMode(value: unknown): SttMode {
+  return value === 'browser' || value === 'hosted' || value === 'auto'
+    ? value
+    : DEFAULT_STT_MODE
+}
+
+/** Coerce a persisted value to a valid TtsEngine (defaulting missing/garbage). */
+function normalizeTtsEngine(value: unknown): TtsEngine {
+  return value === 'web-speech' || value === 'openai' || value === 'kokoro'
+    ? value
+    : DEFAULT_TTS_ENGINE
+}
+
+/** Coerce a persisted value to a valid FaceSkinId (defaulting missing/garbage). */
+function normalizeFaceSkin(value: unknown): FaceSkinId {
+  return value === 'eidolon' || value === 'talkinghead'
+    ? value
+    : DEFAULT_FACE_SKIN
 }
 
 /** Load + validate a persisted snapshot, or return null on any problem. */
@@ -185,6 +241,9 @@ function loadPersisted(
       typeof blob.settings?.provider === 'string' ? blob.settings.provider : null,
     model: typeof blob.settings?.model === 'string' ? blob.settings.model : null,
     inputMode: normalizeInputMode(blob.settings?.inputMode),
+    sttMode: normalizeSttMode(blob.settings?.sttMode),
+    ttsEngine: normalizeTtsEngine(blob.settings?.ttsEngine),
+    faceSkin: normalizeFaceSkin(blob.settings?.faceSkin),
   }
   return {
     // Restored turns are never mid-stream.
@@ -330,6 +389,21 @@ export function createConversationStore(
     setInputMode(mode) {
       if (mode === state.settings.inputMode) return
       commit(state.turns, { settings: { ...state.settings, inputMode: mode } })
+    },
+
+    setSttMode(mode) {
+      if (mode === state.settings.sttMode) return
+      commit(state.turns, { settings: { ...state.settings, sttMode: mode } })
+    },
+
+    setTtsEngine(engine) {
+      if (engine === state.settings.ttsEngine) return
+      commit(state.turns, { settings: { ...state.settings, ttsEngine: engine } })
+    },
+
+    setFaceSkin(skin) {
+      if (skin === state.settings.faceSkin) return
+      commit(state.turns, { settings: { ...state.settings, faceSkin: skin } })
     },
 
     setSettings(partial) {

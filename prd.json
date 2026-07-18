@@ -485,7 +485,7 @@
       "Verify: only server-available brains are selectable; unavailable ones show why.",
       "Verify: changing model/voice/skin/STT-mode updates behavior immediately and survives reload; agent-bridge controls are hidden when /api/config reports it unreachable."
     ],
-    "passes": false,
+    "passes": true,
     "headless_verifiable": true
   },
   {
