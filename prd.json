@@ -798,7 +798,7 @@
       "Verify: the browser-Whisper transcript contains the expected keywords; the auto fallback path is exercised.",
       "Verify: the test runs without real network calls for the hosted case."
     ],
-    "passes": false,
+    "passes": true,
     "headless_verifiable": false
   },
   {

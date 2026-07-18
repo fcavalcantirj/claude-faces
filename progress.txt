@@ -1733,3 +1733,38 @@ navigator.mediaDevices which is absent during SSR, so the server renders "VOICE 
 TYPE BELOW" and the client renders "HOLD TO TALK"; users see a flash of the wrong label in
 production. (2) ReactDOMClient.createRoot() called twice on the same container at
 components/skins/eidolon-skin.tsx:102, orphaning the prior root's Three.js scene.
+
+2026-07-18: [frontend] Eval: STT accuracy smoke test (browser + hosted) — DONE.
+lib/stt/index.test.ts already covered ROUTING with fully fake engines, so this task added the
+missing eval layer rather than duplicating it: tests/stt.smoke.test.ts (10 tests) pushes the
+REAL recorded fixture (tests/fixtures/speech-16k.webm) through the REAL hosted client
+(createHostedStt) with only the network transport mocked, and scores the transcript against a
+known ground truth via transcriptAccuracy(). Covered: hosted path end-to-end (multipart build
+-> response parse -> SttResult provenance: engine/provider/model/latencyMs), a mock that 400s
+when the audio part is missing or empty (so "the clip was actually attached" is proven, not
+assumed), exactly-one-POST assertion (no stray network), typed SttError on a 500, auto-mode
+fallback when the browser worker throws, auto-mode success reporting backend 'webgpu', and
+auto-mode fallback on browser TIMEOUT (browserTimeoutMs: 20). Zero network, zero API spend.
+NON-VACUITY CHECKED: mutated the mock to return "totally wrong garbage output" and confirmed
+the accuracy assertion FAILS (expected +0 to be 1), then restored — the eval genuinely
+discriminates a good transcript from a bad one rather than passing on anything.
+REAL-MODEL PATH ACTUALLY VERIFIED, NOT DEFERRED: tests/e2e/stt.spec.ts drives the genuine
+voice-in path in real chromium — the fake microphone replays speech-16k.wav, the app records
+it, real in-browser Whisper transcribes it, and the transcript renders as a YOU turn. Asserts
+>=3 of [quick, brown, fox, lazy, dog] appear. Result: PASSED (7.8s with the model cached).
+It is skip-by-default behind STT_REAL_MODEL=1 because a cold run downloads a ~50-150MB model —
+wrong for a default CI gate, right for a deliberate eval run.
+PROCESS NOTE (worth remembering): the first real-model run reported shell exit 0 while the
+test had actually FAILED — the 0 came from a trailing `echo`, not from playwright. Reading the
+log showed 0/5 keywords and the HUD still reading "transcribing": the test was snapshotting
+page text the moment the YOU label appeared, before Whisper had finished. Fixed by polling the
+turn's CONTENT (expect.poll, 5min budget) instead of snapshotting. This is exactly the
+rubber-stamp failure mode we flagged in this project — an exit code is not a result; read the
+output.
+Verify (all RUN, all pass): npm run typecheck exits 0; npm test 423/423 across 36 files (up
+from 413/35, no regression); `npx playwright test` default run = 3 passed + 1 skipped;
+`STT_REAL_MODEL=1 npx playwright test tests/e2e/stt.spec.ts` = 1 passed. Flipped passes -> true.
+UAT: confirm STT with a REAL microphone and your own voice (the harness proves chromium's
+synthetic device works, not your hardware), and confirm the HOSTED path against a live
+GROQ_API_KEY / OPENAI_API_KEY — every hosted assertion here runs against a mocked transport by
+design, so the real provider contract (auth, rate limits, actual accuracy) is unproven.
