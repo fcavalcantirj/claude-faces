@@ -626,7 +626,7 @@
       "Verify: with vercel absent and --target vercel, the script exits non-zero with the install hint and no partial deploy.",
       "Verify: --target self-host builds and prints a runnable docker compose / next start command; a missing app file fails preflight fast before any network call."
     ],
-    "passes": false,
+    "passes": true,
     "headless_verifiable": true
   },
   {

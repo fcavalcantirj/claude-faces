@@ -1420,3 +1420,47 @@ set to a sentinel secret -> "Selected brain: Anthropic (claude-opus-4-8)", exit 
 and the sentinel value (and "sk-ant-") appear NOWHERE in stdout; --json is
 secret-free. `npm run typecheck` clean; `npm run build` compiles and prerenders /
 and /_not-found (+ dynamic API routes). Flipped this task's passes -> true.
+
+2026-07-18: [skill] Write the deploy script with vercel and self-host targets — DONE.
+Added skill/agent-face/scripts/deploy.mjs (Node ESM, no external deps) — the ONE deploy
+entry point covering both targets behind a shared preflight. CLI: --target vercel|self-host
+(default vercel), --prod (default) / --preview, --docker (self-host: build via `docker compose
+build` else `next build`), --dry-run (print the plan, run nothing), --help. App dir resolves to
+the current dir when it holds a package.json (the scaffolded-app case) else the packaged
+assets/app-template RELATIVE TO THE SCRIPT (works standalone). PREFLIGHT (both targets, BEFORE
+any network call or build): REQUIRED_APP_FILES = package.json, app/api/chat/route.ts,
+app/api/transcribe/route.ts, vercel.json must exist — a missing file exits 1 fast so a broken
+scaffold never starts a partial deploy. vercel target: resolveVercelBin() (overridable via a
+VERCEL_BIN test seam) then `vercel --version` — if the CLI is absent it prints `npm i -g vercel`
+and exits non-zero BEFORE any build/deploy; then warns (does NOT hard-fail) when no provider env
+(ANTHROPIC/OPENROUTER/GROQ/OPENAI/AGENT_BRIDGE/HERMES) is present, runs `vercel link --yes`
+(idempotent), `npm install`, `npm run typecheck`, `npm run build`, `vercel deploy [--prod]`, then
+prints the URL note + an HTTPS-mic reminder (the *.vercel.app URL is already HTTPS so the mic
+works). self-host target: `docker compose build` (--docker) or `npm install` + `npm run build`,
+then prints the runnable command (`docker compose up --build` / `npm run start`, serving
+http://localhost:${PORT:-3000}) plus how to point AGENT_BRIDGE_URL at the agent's PRIVATE network
+address (no tunnel), pointing at references/deploy.md. Each shelled step streams stdio and exits
+the process non-zero on failure (never proceeds past a broken step). TDD: wrote deploy.test.ts
+FIRST (RED — module not found) then implemented (GREEN). Verify (all headless, all pass): `npx
+vitest run skill/agent-face/scripts/deploy.test.ts` 14/14 green — CLI contract (--help exits 0 and
+names both targets, unknown option exits 2, invalid --target exits 2), parseArgs defaults +
+flags, preflight flags every missing required file / passes on the real repo app dir,
+providerEnvPresent detects one var + ignores blanks, resolveVercelBin honors VERCEL_BIN,
+selfHostRunCommand switches compose/next-start, VERCEL absent (VERCEL_BIN forced to a missing
+binary) + --target vercel exits non-zero with the `npm i -g vercel` hint and NEVER reaches
+build/deploy (no partial deploy), self-host --dry-run prints a runnable `npm run start` + the
+AGENT_BRIDGE_URL guidance, --docker prints `docker compose up`, and a dir with a package.json but
+no api routes fails preflight fast (exit 1, "Preflight failed", app/api/chat/route.ts named)
+before any build. Also verified over REAL execution (not dry-run): `node deploy.mjs --target
+self-host` ran a genuine `npm run build` (compiled all routes: /api/chat|config|models|transcribe|
+tts) then printed the runnable next-start command + AGENT_BRIDGE_URL note; and `VERCEL_BIN=vercel-nope
+node deploy.mjs --target vercel` exited 1 after preflight with the install hint and no build. Full
+suite `npx vitest run` 413/413 green; `npm run typecheck` clean (added JSDoc Record param types on
+the env-taking exports so plain-object test args typecheck); `npm run build` compiles; template
+parity `sync-template.mjs --check` in sync (77 files — deploy.mjs is a skill script, not part of
+the app-template). Portability: no lowercase claude/anthropic/mcp in the script (only the
+UPPERCASE ANTHROPIC_API_KEY env-var name, same as check-env.mjs). Flipped this task's passes -> true.
+UAT (headless_verifiable:true, but the live deploy needs a human): a human should confirm the real
+end-to-end deploy — `node deploy.mjs --target vercel` against a linked Vercel project produces a
+live *.vercel.app URL that loads the face and answers by voice over HTTPS, and `--target self-host
+--docker` + `docker compose up` serves the app on a VPS reachable by a private-network agent-bridge.
