@@ -33,7 +33,7 @@
       "Verify: npm run typecheck passes with no errors.",
       "Verify: npm run build completes and produces a .next/ build."
     ],
-    "passes": false,
+    "passes": true,
     "headless_verifiable": true
   },
   {

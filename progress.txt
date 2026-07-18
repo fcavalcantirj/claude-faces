@@ -19,3 +19,21 @@ NOT overwrite the existing prd.json or README.md with placeholders — the "plac
 step was a bootstrap artifact; the 58-task ledger and full README already exist. Verify: all
 required dirs/files present; git status clean; node -e parses prd.json as a 58-element JSON array.
 Flipped this task's passes -> true.
+
+2026-07-18: [frontend] Scaffold Next.js 16 + React 19 + TypeScript + Tailwind v4 base config — DONE.
+Created package.json (name claude-faces, private, scripts: dev/build/start/lint/typecheck) with
+the pinned deps (next@16, react/react-dom@^19, three@^0.185, @react-three/fiber@^9, drei@^10,
+class-variance-authority, clsx, tailwind-merge, lucide-react) and devDeps (typescript, @types/*,
+tailwindcss@^4 + @tailwindcss/postcss, postcss, eslint, eslint-config-next). Added tsconfig.json
+(strict, moduleResolution bundler, jsx react-jsx, @/* path alias) — excluded reference/ (the
+vendored EIDOLON snapshot referencing @/lib/face-points not yet ported) and the future
+skill app-template so tsc --noEmit stays green. next.config.mjs sets images.unoptimized:true and
+leaves a load-bearing comment that COOP/COEP headers arrive in the dedicated URGENT task.
+postcss.config.mjs wires @tailwindcss/postcss. app/globals.css uses Tailwind v4 @import
+"tailwindcss" + dark theme tokens via @theme inline. app/layout.tsx sets neutral metadata
+(title "Agent Face"); added a minimal app/page.tsx placeholder so the build produces a route
+(later replaced by the orchestrator UI). vercel.json pins framework nextjs + per-function
+maxDuration for app/api/{chat,transcribe,tts}/route.ts. Ran npm install (next 16.2.10, react
+19.2.7, tailwindcss 4.3.3); committing package-lock.json. Verify: `npm run typecheck` passes
+with no errors; `npm run build` compiles successfully and produces .next/ (routes / and
+/_not-found prerendered static). Flipped this task's passes -> true.
