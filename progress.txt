@@ -2308,3 +2308,36 @@ lib/conversation.ts makes it EXIT 1 naming that exact variable; restored, back t
 have not watched fail is not a gate. Lint step added to the CI build job.
 Full gate after the change: parity 0, typecheck 0, npm test 0 (454/454), build 0, coverage 0,
 lint 0, playwright 0 (14 passed). Flipped passes -> true.
+
+2026-07-18: [infra] Make the gates runnable without CI (npm run verify as single source of truth)
+— DONE. Prompted by Felipe: "we should NOT depend on billing right?" — and he is right. This was
+a design flaw I introduced, not merely an outage.
+THE FLAW: I put every gate in .github/workflows/ci.yml and nowhere else, making GitHub Actions
+the ONLY definition of "green". Then the first real run died with "your account is locked due to
+a billing issue" — all three jobs failing before a single step executed — and the project was
+left with no runnable definition of correctness at all. Worse for an OPEN-SOURCE repo: a
+contributor cloning claude-faces has no access to the maintainer's Actions account, so gates
+that live only in CI are gates they can never run.
+THE FIX: scripts/verify.mjs is now the single source of truth — plain Node, no new dependencies,
+running lint, typecheck, unit tests + coverage, build, skill smoke tests and app-template parity,
+with --e2e to add Playwright and --list to print the gates without running them. It prints a
+per-gate PASS/FAIL summary, shows output only for failures, and exits non-zero if any gate fails.
+A SKIPPED gate is reported as SKIP and explicitly excluded from the "all passed" count — a skip
+must never be laundered into a green.
+CI IS NOW A MIRROR, NOT THE SOURCE: .github/workflows/ci.yml collapsed from three jobs
+re-listing every step to two that simply call `npm run verify` (e2e stays separate only because
+it needs a browser download). The header says in plain words: to add a gate, edit
+scripts/verify.mjs, not this file. Local and CI now cannot drift, because there is one list and
+both read it.
+NODE_ENV IS HANDLED AT THE SOURCE: verify scrubs NODE_ENV for the non-build gates and forces
+NODE_ENV=production for the build gate, so the ambient-env footgun that cost this project a day
+cannot recur through this path regardless of what a developer's shell exports.
+IT EARNED ITS KEEP ON ITS FIRST RUN: it immediately failed on app-template parity, because
+adding scripts/verify.mjs and the verify npm script had drifted the template and I had not
+re-synced. The gate caught its own author, one minute after being written.
+Verify (all RUN, $? captured directly, both directions): `npm run verify` EXIT=0, 6 gates PASS;
+injecting an unused variable makes it EXIT=1 and correctly names TWO failing gates (lint AND
+app-template parity, since the edit also drifted the mirror); restored, back to 0;
+`npm run verify -- --e2e` EXIT=0 with all 7 gates including Playwright; ci.yml parses with jobs
+[verify, e2e] and no duplicated gate list; CONTRIBUTING.md documents npm run verify as the
+pre-PR command. Filed and flipped passes -> true.

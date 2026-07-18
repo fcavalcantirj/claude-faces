@@ -37,10 +37,13 @@ App scripts (repo root):
 
 | Command | What it does |
 |---|---|
+| **`npm run verify`** | **Run every gate — this is what CI runs. Use it before every PR.** |
+| `npm run verify -- --e2e` | Same, plus the Playwright browser suite (slower) |
+| `npm run verify -- --list` | Show the gates without running them |
 | `npm run dev` | Start the Next.js dev server on port 3000 |
 | `npm run build` | Production build (`next build`) |
 | `npm start` | Serve the production build |
-| `npm run typecheck` | `tsc --noEmit` — must pass before every PR |
+| `npm run typecheck` | `tsc --noEmit` (also covered by `npm run verify`) |
 | `npm run lint` | `eslint .` |
 | `npm test` | Vitest unit/integration suite (`vitest run`) |
 | `npm run test:watch` | Vitest in watch mode |

@@ -1046,6 +1046,24 @@
   },
   {
     "category": "infra",
+    "description": "Make the gates runnable without CI (npm run verify as the single source of truth)",
+    "steps": [
+      "CONTEXT (2026-07-18): the first real CI run failed with 'The job was not started because your account is locked due to a billing issue' — all three jobs died before a single step executed. That exposed a design flaw, not just an outage: the workflow had become the ONLY definition of 'green'. An open-source project whose contributors have no access to the maintainer's Actions account cannot put its gates exclusively in CI.",
+      "Create scripts/verify.mjs — plain Node, no dependencies beyond the project's own — running every gate in one place: lint, typecheck, unit tests + coverage, build, skill smoke tests, app-template parity. Support --e2e to add Playwright and --list to print gates without running.",
+      "Scrub NODE_ENV for the non-build gates and force NODE_ENV=production for the build gate: an ambient NODE_ENV=development makes next build load React's dev build for part of the SSR graph and prod for the rest, killing prerendering with a null-dispatcher useContext error. That footgun cost this project a day.",
+      "Report a per-gate PASS/FAIL summary, print the tail of the output for failures only, and exit non-zero if ANY gate fails. A skipped gate must be reported as SKIP, never folded into a clean green.",
+      "Rewrite .github/workflows/ci.yml to simply CALL `npm run verify` rather than re-listing the steps, so local and CI cannot drift. Keep e2e as a separate job only because it needs a browser download.",
+      "Document `npm run verify` in CONTRIBUTING.md as the pre-PR command.",
+      "Verify: `npm run verify` exits 0 on a clean tree and prints a per-gate summary.",
+      "Verify: injecting a deliberate lint violation makes it exit 1 AND name the failing gate.",
+      "Verify: `npm run verify -- --e2e` runs the browser suite too and exits 0.",
+      "Verify: .github/workflows/ci.yml no longer duplicates the gate list — it calls npm run verify."
+    ],
+    "passes": true,
+    "headless_verifiable": true
+  },
+  {
+    "category": "infra",
     "description": "Finalize the deliverable prd.json at repo root",
     "steps": [
       "PREREQUISITE: DEPENDS ON all prior tasks (this file is the project deliverable).",
