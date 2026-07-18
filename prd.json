@@ -392,7 +392,7 @@
       "Verify: with GROQ_API_KEY set, a short webm/opus clip returns accurate text and provider 'groq'.",
       "Verify: with only OPENAI_API_KEY set, it falls back to OpenAI; an oversize clip returns 413 with no upstream call."
     ],
-    "passes": false,
+    "passes": true,
     "headless_verifiable": false
   },
   {

@@ -796,3 +796,46 @@ climbs to 100% then shows 'ready, offline-capable' with the chosen backend (WebG
 machines without navigator.gpu); reload and confirm the model shows 'cached/ready' with NO
 re-download; confirm 'skip to hosted' during download terminates the worker and routes STT to the
 hosted fallback; confirm the HUD surfaces the active STT engine + backend.
+
+2026-07-18: [backend] Upgrade /api/transcribe into a hosted STT fallback (Groq
+whisper-large-v3-turbo, OpenAI fallback) — DONE. Added the hosted speech-to-text seam the
+client falls back to when in-browser Whisper is unavailable (no WebGPU/WASM, model not cached,
+worker error). Core logic lives in lib/stt/hosted.ts (env + fetch + clock ALL injected via a
+HostedSttDeps seam) so it is fully headlessly unit-testable with no network/key; app/api/
+transcribe/route.ts is a thin runtime='nodejs' (maxDuration 60) wrapper that supplies the real
+process.env + global fetch + Date.now. transcribeHosted(request, deps): (1) early Content-Length
+guard (>4.4MB -> 413 before buffering); (2) provider selection FIRST — Groq whisper-large-v3-turbo
+when GROQ_API_KEY is set (cheapest/fastest), else OpenAI (OPENAI_TRANSCRIBE_MODEL, default
+whisper-1) when OPENAI_API_KEY is set, else a typed 400 'unavailable' telling the client to use
+in-browser Whisper; (3) parse the multipart 'audio' field (duck-typed isBlobLike guard, since
+undici File vs a polyfilled Blob fail cross-realm instanceof; also rejects string fields), pulling
+optional per-request language/prompt settings passthrough that fall back to the OPENAI_TRANSCRIBE_
+LANGUAGE/PROMPT env knobs; (4) PRECISE audio-blob size guard MAX_AUDIO_BYTES=4MB -> 413 BEFORE any
+upstream call; (5) forward an OpenAI-compatible multipart POST (file + model + response_format json
++ optional language/prompt, Authorization: Bearer <key>, request.signal wired for barge-in) to
+Groq's https://api.groq.com/openai/v1/audio/transcriptions or OpenAI's
+https://api.openai.com/v1/audio/transcriptions; (6) return { text, provider, model, latencyMs }.
+Errors normalize through the shared errorForStatus/normalizeError to safe JSON with correct HTTP
+status — an upstream 401 -> 401 unauthorized (secret NEVER echoed), 500 -> 502 upstream_error, an
+unreachable endpoint (fetch TypeError) -> 502 network — using a filenameFor() MIME->extension
+helper so the provider infers the audio format. Both keys stay server-side. TDD: wrote
+lib/stt/hosted.test.ts FIRST (RED) then implemented (GREEN); pinned that spec to
+`// @vitest-environment node` because the route manipulates multipart FormData/Blob and jsdom
+overrides those globals with a realm that conflicts with undici's Request.formData()/FormData —
+a test-only artifact that never occurs on the Next.js Node runtime. Verify (all headless, all pass):
+`npm test` 249/249 green incl. 11 new hosted specs — Groq preferred over OpenAI when both keys set
+(model whisper-large-v3-turbo, provider 'groq', latencyMs from the injected clock, Bearer + file +
+model on the upstream form); OpenAI fallback with only OPENAI_API_KEY (default whisper-1);
+OPENAI_TRANSCRIBE_MODEL + language/prompt env knobs applied; a request language/prompt field
+overrides the env default; a 5MB clip -> 413 with ZERO upstream calls; a huge Content-Length ->
+413 pre-parse; no key -> 400 unavailable; missing audio field -> 400 bad_request; upstream 401 ->
+typed unauthorized with no 'gsk-'/'sk-' leak; upstream 500 -> 502 upstream_error; unreachable
+upstream -> 502 network. `npm run typecheck` clean; `npm run build` compiles and now emits
+ƒ /api/transcribe (dynamic). Additionally verified over REAL HTTP with `npx next start` (no keys):
+a multipart clip -> 400 'unavailable', a 5MB clip -> 413 'Audio upload too large.' via the
+Content-Length guard, all secret-free. Flipped this task's passes -> true.
+UAT (headless_verifiable:false — needs a live/paid GROQ_API_KEY or OPENAI_API_KEY): with
+GROQ_API_KEY set, POST a short webm/opus clip to /api/transcribe and confirm accurate text with
+provider 'groq' + model whisper-large-v3-turbo; with only OPENAI_API_KEY set, confirm it falls back
+to OpenAI (whisper-1/gpt-4o-transcribe); confirm a deliberately bad key surfaces a 401 unauthorized
+and a language/prompt passthrough biases the transcript.
