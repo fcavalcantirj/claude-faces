@@ -189,6 +189,36 @@ OpenAI while you fix this.
 
 ---
 
+## 7. `next build` crashes with `useContext` null (`NODE_ENV`)
+
+**Symptom:** `npm run typecheck` passes but `next build` fails while prerendering
+an *internal* page — `/_global-error`, `/_not-found`, or `/404` (the exact page
+**moves between runs**) — with `Cannot read properties of null (reading
+'useContext')`, often alongside React `unique "key"` warnings on
+`<html>`/`<head>`/`<meta>` during what is supposed to be a production build.
+
+**Cause:** the environment forces **`NODE_ENV=development`** — most often an
+`export NODE_ENV=development` left in a shell rc (e.g. `~/.zshrc`). `next build`
+requires `NODE_ENV=production`; pinned to development, React loads its **dev**
+build for part of the module graph and its **prod** build for the rest, so the
+SSR dispatcher is `null` and the first prerendered page throws. The surviving
+dev-only key warnings are the tell — a genuine production build strips them.
+This is **environmental, not a code or framework/version bug**: a clean env (and
+Vercel) builds fine, so do **not** downgrade Next or pin React chasing it.
+
+**Check:**
+
+```bash
+echo "$NODE_ENV"                    # must be empty or "production" to build
+NODE_ENV=production npm run build   # exits 0 if NODE_ENV was the cause
+```
+
+If `echo $NODE_ENV` prints `development`, remove or scope the `export
+NODE_ENV=...` in your shell rc (it silently breaks other tools' production
+builds too), open a fresh shell, and rebuild.
+
+---
+
 ## Nothing configured (the degradation messages)
 
 With **zero** provider keys and no agent-bridge, the app still boots — the face
