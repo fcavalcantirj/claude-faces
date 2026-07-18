@@ -214,7 +214,7 @@
       "Verify: streamChat against a cheap OpenRouter model yields incremental deltas then done.",
       "Verify: listModels() includes at least one Hermes model; a 401 from a bad key surfaces as a typed AdapterError."
     ],
-    "passes": false,
+    "passes": true,
     "headless_verifiable": false
   },
   {

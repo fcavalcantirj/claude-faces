@@ -328,3 +328,45 @@ UAT (headless_verifiable:false — needs a live/paid ANTHROPIC_API_KEY): with a 
 /api/chat (once the route lands) selecting the anthropic brain and confirm the model streams multiple
 delta events then a done event, and that cancelling the client request mid-stream (barge-in) promptly
 stops the upstream stream; verify listModels reflects a real ANTHROPIC_DEFAULT_MODEL override.
+
+2026-07-18: [backend] Implement the OpenRouter unified adapter (Mode A; also fronts Nous
+Hermes and other models) — DONE. Added lib/providers/openrouter.ts implementing the ChatAdapter
+seam over the OpenAI-compatible endpoint https://openrouter.ai/api/v1/chat/completions with
+stream:true. createOpenRouterAdapter(deps?) injects `fetch` (default globalThis.fetch) so the
+whole adapter is headlessly unit-testable with no network/key. streamChat() sends
+OPENROUTER_API_KEY as a Bearer token PLUS the OpenRouter-etiquette headers HTTP-Referer
+(the project repo URL) and X-Title ("Claude Faces") — both non-secret, safe to hard-code — maps
+ChatRequest.system into the messages array as a leading {role:'system'} turn (OpenAI shape),
+sets max_tokens 4096 (the face SPEAKS its reply, so concise beats essays) and forwards
+req.temperature when provided (OpenRouter accepts it, unlike Anthropic Opus/Sonnet). The upstream
+text/event-stream is parsed through the shared lib/providers/sse.ts parseSSEStream (drops the
+[DONE] sentinel in one place), each frame JSON.parsed to extract choices[0].delta.content into
+StreamEvent {type:'delta'} (non-JSON keep-alive comment frames are skipped), and
+choices[0].finish_reason captured as the final {type:'done'} reason (default 'stop'). Honors
+req.signal for barge-in: the signal is passed to the fetch AND checked at the top of the delta
+loop so an aborted client cuts off further deltas (loop breaks, then throws AdapterError('aborted')).
+listModels(env) fetches https://openrouter.ai/api/v1/models (per-adapter 5-min cache so tests stay
+isolated), pins three known Nous Research Hermes ids (hermes-3 405B/70B, hermes-2-pro 8B) as
+favorites at the TOP, merges the live catalog after them (dedup), and marks the default via
+OPENROUTER_DEFAULT_MODEL (else nousresearch/hermes-3-llama-3.1-70b) — an override outside both
+lists is surfaced+preselected. listModels degrades to just the Hermes favorites if the catalog
+fetch fails or returns non-2xx (the picker must never break on a catalog hiccup). available(env)=
+Boolean(OPENROUTER_API_KEY) (pure, no I/O); missing key -> streamChat throws 'unavailable' and
+resolveAdapter/listAvailableAdapters exclude it. Non-2xx responses normalize through the shared
+errorForStatus (401/403->unauthorized, 429->rate_limited, 5xx->upstream_error, else bad_request);
+fetch TypeError->network via normalizeError. Wired into the registry: lib/providers/index.ts now
+imports createOpenRouterAdapter and does the ONE registerAdapter('openrouter', ...) line.
+TDD: wrote lib/providers/openrouter.test.ts FIRST (RED) then implemented (GREEN). Verify (all
+headless, all pass): `npm test` 105/105 green incl. 9 new openrouter specs — available only with
+the key; listModels surfaces >=1 Hermes model with favorites first and merges the fetched catalog;
+OPENROUTER_DEFAULT_MODEL overrides the default; a failed catalog fetch degrades to Hermes
+favorites; a scripted SSE transcript yields incremental deltas then a done (reason 'stop') with
+Bearer + HTTP-Referer + X-Title headers and stream:true set; system maps to a leading system
+message; a missing key throws 'unavailable'; a 401 from a bad key surfaces as a typed unauthorized
+AdapterError (status 401); aborting the signal after the first delta stops further deltas and
+throws 'aborted'. `npm run typecheck` clean; `npm run build` compiles and prerenders / and
+/_not-found. Flipped this task's passes -> true.
+UAT (headless_verifiable:false — needs a live OPENROUTER_API_KEY): with a real key set, hit
+/api/chat (once the route lands) selecting the openrouter brain against a cheap model and confirm
+it streams multiple delta events then a done; confirm listModels() returns a live catalog
+including at least one Hermes id; confirm a deliberately bad key yields an unauthorized error.

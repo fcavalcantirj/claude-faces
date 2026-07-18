@@ -119,8 +119,10 @@ function priorityIndex(id: string): number {
 // app learns a provider's name.
 
 import { createAnthropicAdapter } from '@/lib/providers/anthropic'
+import { createOpenRouterAdapter } from '@/lib/providers/openrouter'
 
 registerAdapter('anthropic', createAnthropicAdapter)
+registerAdapter('openrouter', createOpenRouterAdapter)
 
 export {
   AdapterError,
