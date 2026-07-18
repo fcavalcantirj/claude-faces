@@ -1063,6 +1063,21 @@
     "headless_verifiable": true
   },
   {
+    "category": "skill",
+    "description": "Make the dev-server port kill work on Linux (not just macOS)",
+    "steps": [
+      "CONTEXT (found 2026-07-18 by running the gates in a Linux container instead of only on macOS): dev.mjs freed the port using `lsof -ti tcp:PORT` and, when lsof was ABSENT, returned [] — silently reporting 'port is free' and skipping the kill entirely. A stock node:22-bookworm image has NONE of lsof, ss, fuser or netstat, so on Linux that was the NORMAL case. The 'always kill any previous dev server' guarantee — a hard project requirement — silently did nothing there.",
+      "Replace the single-tool lookup with a strategy chain: lsof (macOS/most Linux) -> pure-Node /proc scan (parse /proc/net/tcp{,6} for the LISTEN inode, then match /proc/<pid>/fd symlinks against socket:[inode]) -> ss/fuser -> netstat on Windows. Keep it PORT-SCOPED; never kill by process name.",
+      "When no strategy can inspect the port, WARN explicitly rather than returning [] silently — a quiet wrong answer is worse than a loud unknown.",
+      "Fix dev.test.ts's portOwners() helper, which called lsof directly and so had the identical bug: on Linux its own sanity check failed before the real assertion ran. Import findPidsOnPort from dev.mjs so the test exercises the shipped lookup rather than a parallel imitation.",
+      "Verify: npm test and npm run test:skill pass on macOS (no regression).",
+      "Verify: the full `npm run verify` gate passes inside a Linux container with no lsof installed.",
+      "Verify: the /proc path genuinely finds a listener — the decoy-listener test must PASS on Linux, not merely skip."
+    ],
+    "passes": true,
+    "headless_verifiable": true
+  },
+  {
     "category": "infra",
     "description": "Finalize the deliverable prd.json at repo root",
     "steps": [

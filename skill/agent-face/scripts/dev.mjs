@@ -26,7 +26,7 @@
 // can run it (lsof-based kill targets macOS/Linux per the task; Windows still
 // gets the browser-open path).
 
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, readlinkSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { spawn, spawnSync } from "node:child_process";
@@ -102,23 +102,141 @@ export function resolveAppDir(cwd = process.cwd()) {
   return cwd; // let `npm run dev` surface a clear error
 }
 
-// PIDs holding a socket on the port, excluding our own process. lsof exits 1
-// (empty stdout) when nothing matches — that's the "port is free" case, not an
-// error.
-export function findPidsOnPort(port) {
-  const res = spawnSync("lsof", ["-ti", `tcp:${port}`], { encoding: "utf8" });
-  if (res.error) {
-    // lsof missing (e.g. Windows) — we can't port-scan; treat as free.
-    return [];
-  }
-  if (!res.stdout) return [];
+// PIDs holding a socket on the port, excluding our own process.
+//
+// STRATEGY CHAIN, because no single tool is universally present. The original
+// implementation used lsof alone and returned [] when it was missing — which
+// silently reported "port is free" and skipped the kill entirely. A stock
+// node:22-bookworm image (i.e. a CI runner, or anyone's container) has NONE of
+// lsof, ss, fuser or netstat, so on Linux that failure was the normal case, not
+// an edge case. It is also the worst possible failure mode: not an error, just
+// a quiet wrong answer.
+//
+//   1. lsof         — macOS and most Linux workstations
+//   2. /proc         — pure Node, no external binary; works in bare containers
+//   3. ss / fuser    — Linux boxes that have iproute2/psmisc but not lsof
+//   4. netstat       — Windows
+//
+// Kept PORT-SCOPED throughout: we only ever stop whatever holds THIS port, never
+// kill by process name, which would nuke unrelated projects' dev servers.
+
+function runCapture(cmd, args) {
+  const res = spawnSync(cmd, args, { encoding: "utf8" });
+  if (res.error) return null; // binary not present on this machine
+  return res.stdout ?? "";
+}
+
+function cleanPids(pids) {
   const self = process.pid;
-  return res.stdout
-    .split("\n")
-    .map((s) => s.trim())
-    .filter(Boolean)
-    .map(Number)
-    .filter((pid) => Number.isInteger(pid) && pid > 0 && pid !== self);
+  return [...new Set(pids)].filter(
+    (pid) => Number.isInteger(pid) && pid > 0 && pid !== self,
+  );
+}
+
+/**
+ * Pure-Node Linux lookup: find the listening socket's inode in /proc/net/tcp{,6},
+ * then find which process holds a file descriptor pointing at that inode.
+ * Needs no external binaries at all — the reason this fallback exists.
+ */
+function findPidsViaProc(port) {
+  if (process.platform !== "linux" || !existsSync("/proc/net/tcp")) return null;
+
+  const wantHex = port.toString(16).toUpperCase().padStart(4, "0");
+  const inodes = new Set();
+
+  for (const table of ["/proc/net/tcp", "/proc/net/tcp6"]) {
+    if (!existsSync(table)) continue;
+    let lines;
+    try {
+      lines = readFileSync(table, "utf8").split("\n").slice(1);
+    } catch {
+      continue;
+    }
+    for (const line of lines) {
+      const f = line.trim().split(/\s+/);
+      if (f.length < 10) continue;
+      // f[1] = local_address "HEXIP:HEXPORT"; f[3] = state, 0A = LISTEN
+      const localPort = f[1]?.split(":")[1];
+      if (localPort !== wantHex || f[3] !== "0A") continue;
+      const inode = Number(f[9]);
+      if (Number.isInteger(inode) && inode > 0) inodes.add(inode);
+    }
+  }
+  if (inodes.size === 0) return [];
+
+  const targets = new Set([...inodes].map((i) => `socket:[${i}]`));
+  const pids = [];
+  let procDirs;
+  try {
+    procDirs = readdirSync("/proc");
+  } catch {
+    return null; // /proc unreadable — report "unknown", not "free"
+  }
+
+  for (const entry of procDirs) {
+    if (!/^\d+$/.test(entry)) continue;
+    let fds;
+    try {
+      fds = readdirSync(`/proc/${entry}/fd`);
+    } catch {
+      continue; // another user's process — not ours to inspect or kill
+    }
+    for (const fd of fds) {
+      try {
+        if (targets.has(readlinkSync(`/proc/${entry}/fd/${fd}`))) {
+          pids.push(Number(entry));
+          break;
+        }
+      } catch {
+        /* fd vanished mid-scan */
+      }
+    }
+  }
+  return pids;
+}
+
+export function findPidsOnPort(port) {
+  // 1. lsof — authoritative where present. Exits 1 with empty stdout when
+  //    nothing matches, which is the genuine "port is free" case.
+  const lsofOut = runCapture("lsof", ["-ti", `tcp:${port}`]);
+  if (lsofOut !== null) {
+    return cleanPids(lsofOut.split("\n").map((s) => Number(s.trim())));
+  }
+
+  // 2. /proc — no external binary needed. This is what makes bare containers work.
+  const procPids = findPidsViaProc(port);
+  if (procPids !== null) return cleanPids(procPids);
+
+  // 3. ss, then fuser — Linux hosts with iproute2/psmisc but no lsof.
+  const ssOut = runCapture("ss", ["-lptnH", `sport = :${port}`]);
+  if (ssOut) {
+    const pids = [...ssOut.matchAll(/pid=(\d+)/g)].map((m) => Number(m[1]));
+    if (pids.length) return cleanPids(pids);
+  }
+
+  const fuserOut = runCapture("fuser", [`${port}/tcp`]);
+  if (fuserOut) {
+    return cleanPids(fuserOut.trim().split(/\s+/).map(Number));
+  }
+
+  // 4. Windows.
+  if (process.platform === "win32") {
+    const netstatOut = runCapture("netstat", ["-ano"]);
+    if (netstatOut) {
+      const pids = netstatOut
+        .split("\n")
+        .filter((l) => /LISTENING/i.test(l) && new RegExp(`[:.]${port}\\s`).test(l))
+        .map((l) => Number(l.trim().split(/\s+/).pop()));
+      return cleanPids(pids);
+    }
+  }
+
+  // Nothing could inspect the port. Return empty (callers then rely on the
+  // net-based free/busy probe), but say so — never imply a confident "free".
+  console.warn(
+    `  ! could not inspect port ${port}: no lsof, /proc, ss, fuser or netstat available`,
+  );
+  return [];
 }
 
 function sleep(ms) {

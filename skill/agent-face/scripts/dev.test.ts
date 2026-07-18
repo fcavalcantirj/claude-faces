@@ -53,12 +53,21 @@ function spawnDecoy(port: number): Promise<ChildProcess> {
   });
 }
 
-function portOwners(port: number): string[] {
-  const res = spawnSync("lsof", ["-ti", `tcp:${port}`], { encoding: "utf8" });
-  return (res.stdout || "")
-    .split("\n")
-    .map((s) => s.trim())
-    .filter(Boolean);
+// Use dev.mjs's OWN port lookup rather than shelling out to lsof here.
+//
+// This helper previously called `lsof -ti` directly, which duplicated the very
+// dependency the script was fixed to stop relying on. On any machine without
+// lsof — a stock node:22 container, i.e. a CI runner — it returned [] and the
+// test's own SANITY CHECK failed ("expected 0 to be greater than 0") before the
+// real assertion ever ran. The test was macOS-only while claiming to verify
+// portable behaviour.
+//
+// Importing the real function also means this test now exercises the shipped
+// lookup (lsof → /proc → ss/fuser → netstat) instead of a parallel imitation of
+// it. dev.mjs guards its CLI entry, so importing has no side effects.
+async function portOwners(port: number): Promise<number[]> {
+  const { findPidsOnPort } = await import("./dev.mjs");
+  return findPidsOnPort(port);
 }
 
 describe("dev.mjs CLI contract", () => {
@@ -86,13 +95,13 @@ describe("dev.mjs frees the port before starting", () => {
     const decoy = await spawnDecoy(port);
     try {
       // Sanity: the decoy really is holding the port.
-      expect(portOwners(port).length).toBeGreaterThan(0);
+      expect((await portOwners(port)).length).toBeGreaterThan(0);
 
       const res = runDev(["--kill-only", "--no-open", "--port", String(port)]);
       expect(res.status).toBe(0);
 
       // dev.mjs only exits after the port is confirmed clear.
-      expect(portOwners(port)).toEqual([]);
+      expect(await portOwners(port)).toEqual([]);
       expect(res.stderr.toLowerCase()).toContain("freed port");
     } finally {
       decoy.kill("SIGKILL");

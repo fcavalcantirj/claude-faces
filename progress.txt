@@ -2341,3 +2341,41 @@ app-template parity, since the edit also drifted the mirror); restored, back to 
 `npm run verify -- --e2e` EXIT=0 with all 7 gates including Playwright; ci.yml parses with jobs
 [verify, e2e] and no duplicated gate list; CONTRIBUTING.md documents npm run verify as the
 pre-PR command. Filed and flipped passes -> true.
+
+2026-07-18: [skill] Make the dev-server port kill work on Linux (not just macOS) — DONE.
+FOUND BY RUNNING THE GATES SOMEWHERE OTHER THAN THIS MAC. Felipe asked whether paying GitHub
+would make CI green. Rather than guess, I ran `npm run verify` inside a node:22-bookworm
+container to approximate a runner. Two gates FAILED that pass on macOS — so clearing the
+billing block would have bought a RED CI, not a green one.
+ROOT CAUSE, and it is a nasty one: dev.mjs found the port holder with `lsof -ti tcp:PORT` and,
+when lsof was missing, returned [] — silently reporting "the port is free" and skipping the
+kill. The original comment even said "lsof missing (e.g. Windows) — treat as free". A stock
+node:22-bookworm image has NONE of lsof, ss, fuser OR netstat (verified), so on Linux that was
+not an edge case, it was the NORMAL case. The project's hard requirement — always kill any
+previous dev server before starting — silently did nothing on Linux, and reported success.
+FIX: a strategy chain, still strictly PORT-SCOPED (never kill by process name, which would nuke
+unrelated projects' servers): lsof -> pure-Node /proc scan -> ss/fuser -> netstat on Windows.
+The /proc path is the one that matters for containers and needs no external binary at all: parse
+/proc/net/tcp and tcp6 for a LISTEN (state 0A) socket on the port, take its inode, then walk
+/proc/<pid>/fd/ looking for a symlink to socket:[inode]. When NOTHING can inspect the port it
+now WARNS explicitly instead of returning [] — a quiet wrong answer is worse than a loud unknown,
+which is exactly what the original bug proved.
+THE TEST HAD THE SAME BUG. dev.test.ts's portOwners() helper also shelled out to `lsof` directly,
+so on Linux its own SANITY CHECK ("the decoy really is holding the port") failed with "expected 0
+to be greater than 0" BEFORE the real assertion ever ran. The test was macOS-only while claiming
+to verify portable behaviour — a parallel imitation of the code under test, carrying the same
+defect. Now imports findPidsOnPort from dev.mjs so it exercises the SHIPPED lookup.
+PROCESS NOTE: my first containerised run reported 3 failures (lint, unit, parity) that were
+artifacts of MY OWN tooling — macOS BSD tar wrote AppleDouble ._* resource-fork files into the
+archive, which eslint then choked on ("Parsing error: Invalid character") and which parity read
+as missing files (app/._.gitkeep). Re-tarred with COPYFILE_DISABLE=1 --no-xattrs and they
+vanished. Worth recording: when a cross-platform check fails, rule out the transport before
+believing the diagnosis.
+Verify (all RUN, $? captured directly): macOS `npm run verify` EXIT=0, 6/6 gates; macOS
+dev.test.ts 5/5 and test:skill 27/27 (no regression); and — the real point — the FULL
+`npm run verify` inside a Linux container with no lsof present: ALL 6 GATES PASS, including the
+decoy-listener test that genuinely exercises the /proc path rather than skipping.
+NOTE ON CI: the GitHub Actions block is NOT an unpaid bill. Felipe's billing page shows GitHub
+Free, $0 metered usage and no payment due — but Budgets and alerts has a $0 budget on the
+ACTIONS product with "Stop usage: Yes", which halts every job before it starts. Public repos get
+free unlimited Actions minutes, so the fix is to delete that budget, not to pay anything.
