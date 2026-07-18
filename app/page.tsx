@@ -24,6 +24,7 @@ import { SettingsPanel } from '@/components/settings-panel'
 import { useConversation } from '@/lib/use-conversation'
 import { useEmotion } from '@/lib/face/use-emotion'
 import { useOrchestrator } from '@/lib/use-orchestrator'
+import { useCapabilities } from '@/lib/use-capabilities'
 
 /** Short, human label for the active lifecycle phase (HUD readout). */
 const PHASE_LABEL: Record<string, string> = {
@@ -52,6 +53,14 @@ export default function Home() {
     sendText,
     interrupt,
   } = useOrchestrator()
+
+  // Graceful degradation: probe server keys + browser abilities on load and
+  // reconcile settings to a working path. The face stays interactive regardless;
+  // we surface a "configure a brain" banner (no chat) and any voice-in/out hints.
+  const { matrix, hasBrain, loading: capsLoading } = useCapabilities()
+  const voiceHints = matrix.features.filter(
+    (f) => f.key !== 'chat' && !f.available && f.message,
+  )
 
   const busy =
     status.phase !== 'idle' && status.phase !== 'error' && status.phase !== 'listening'
@@ -124,27 +133,55 @@ export default function Home() {
         </div>
       ) : null}
 
+      {/* Graceful-degradation notices. The face is never gated — only chat/voice.
+          With no brain reachable we explain what to configure; voice-in/out
+          shortfalls (no mic, no STT, no Web Speech) show as actionable hints. */}
+      {!capsLoading && (!hasBrain || voiceHints.length > 0) ? (
+        <div className="pointer-events-none absolute left-1/2 top-16 z-30 flex w-[min(92vw,32rem)] -translate-x-1/2 flex-col gap-2">
+          {!hasBrain ? (
+            <div className="rounded-sm border border-amber-500/50 bg-amber-950/50 px-3 py-2 font-mono text-[11px] leading-relaxed text-amber-200">
+              <span className="mr-1 tracking-widest text-amber-400/70">NO BRAIN</span>
+              {matrix.chat.message}
+            </div>
+          ) : null}
+          {voiceHints.map((f) => (
+            <div
+              key={f.key}
+              className="rounded-sm border border-border/60 bg-card/80 px-3 py-1.5 font-mono text-[11px] leading-relaxed text-muted-foreground"
+            >
+              <span className="mr-1 tracking-widest text-muted-foreground/50">
+                {f.label.toUpperCase()}
+              </span>
+              {f.message}
+            </div>
+          ))}
+        </div>
+      ) : null}
+
       {/* Bottom control bar: Talk + text input + interrupt. */}
       <div className="pointer-events-none absolute inset-x-0 bottom-24 z-40 flex flex-col items-center gap-3 px-4">
         <div className="pointer-events-auto flex w-full max-w-md items-center gap-2">
           <button
             type="button"
             aria-pressed={handsFree ? listening : status.phase === 'listening'}
-            onPointerDown={handsFree ? undefined : pttHandlers.onPointerDown}
-            onPointerUp={handsFree ? undefined : pttHandlers.onPointerUp}
-            onPointerLeave={handsFree ? undefined : pttHandlers.onPointerLeave}
-            onClick={handsFree ? toggleHandsFree : undefined}
-            className={`flex-1 select-none rounded-sm border px-4 py-3 font-mono text-xs tracking-widest transition-colors ${
+            disabled={!matrix.voiceIn.available}
+            onPointerDown={handsFree || !matrix.voiceIn.available ? undefined : pttHandlers.onPointerDown}
+            onPointerUp={handsFree || !matrix.voiceIn.available ? undefined : pttHandlers.onPointerUp}
+            onPointerLeave={handsFree || !matrix.voiceIn.available ? undefined : pttHandlers.onPointerLeave}
+            onClick={handsFree && matrix.voiceIn.available ? toggleHandsFree : undefined}
+            className={`flex-1 select-none rounded-sm border px-4 py-3 font-mono text-xs tracking-widest transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
               (handsFree && listening) || status.speaking
                 ? 'border-accent bg-accent/20 text-accent'
                 : 'border-border/60 text-foreground hover:border-accent'
             }`}
           >
-            {handsFree
-              ? listening
-                ? 'LISTENING — TAP TO STOP'
-                : 'TAP TO LISTEN (HANDS-FREE)'
-              : 'HOLD TO TALK (OR SPACE)'}
+            {!matrix.voiceIn.available
+              ? 'VOICE UNAVAILABLE — TYPE BELOW'
+              : handsFree
+                ? listening
+                  ? 'LISTENING — TAP TO STOP'
+                  : 'TAP TO LISTEN (HANDS-FREE)'
+                : 'HOLD TO TALK (OR SPACE)'}
           </button>
           <button
             type="button"

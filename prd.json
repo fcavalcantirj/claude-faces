@@ -517,7 +517,7 @@
       "Verify: with zero env keys the app boots, the face animates, and browser STT + Web Speech still function for a local/dev brain.",
       "Verify: removing GROQ/OPENAI keys routes STT to the browser worker and TTS to Web Speech; with no brain at all, the UI explains what to configure instead of throwing."
     ],
-    "passes": false,
+    "passes": true,
     "headless_verifiable": true
   },
   {

@@ -1163,3 +1163,50 @@ utterance / Esc / STOP) cleanly aborts and starts a new turn, with the face show
 and SPEAKING synced to the audio. These need real audio playback, WebGPU/WASM, a microphone, and a live/paid
 provider key, none of which are available headlessly; the FSM logic itself is fully covered by the headless tests
 above.
+
+2026-07-18: [frontend] Implement graceful degradation when no server keys are present — DONE.
+Built the load-time capability layer that lets the app boot into a fully-local, non-throwing
+experience whatever keys (or none) the deployment has. Core is lib/capabilities.ts — a pure,
+headlessly-tested module (no DOM, no fetch): BrowserCapabilities + detectBrowserCapabilities(scope?)
+reads the feature flags off an injectable scope (defaults to globalThis, so it's SSR-safe and
+all-false on the server) — navigator.gpu (WebGPU), WebAssembly (WASM Whisper fallback),
+MediaRecorder + navigator.mediaDevices.getUserMedia (mic capture), speechSynthesis (zero-key Web
+Speech), crossOriginIsolated + isSecureContext. computeFeatureMatrix(config, browser) is the
+available-features matrix: chat (any Mode A key OR the Mode B agent-bridge), voiceIn (a usable mic
+AND some STT path — in-browser Whisper via WebGPU/WASM OR a hosted GROQ/OPENAI key), voiceOut
+(Web Speech OR hosted OpenAI TTS) — every UNAVAILABLE feature carries an actionable message (no
+brain -> "add a key on the server … or wire your running agent (AGENT_BRIDGE_URL)"; no mic ->
+"needs microphone over https/localhost, you can still type"; no STT -> "can't run in-browser
+Whisper and no hosted key, you can still type"; no voiceOut -> "no Web Speech, set OPENAI_API_KEY,
+replies still appear as text") and the face is NEVER gated, only chat/voice. autoSelectStt/
+autoSelectTts encode the "zero-key local first, hosted only when keyed" rule (no hosted STT key ->
+'browser'; hosted key -> browser-first 'auto'; no OpenAI key -> 'web-speech', else 'openai').
+reconcileSettings(settings, config, browser) is the workhorse the app runs on load: it repairs any
+persisted selection that became invalid without clobbering valid ones — a 'hosted' STT mode with no
+hosted key degrades to browser-first 'auto', an 'openai' voice with no key degrades to 'web-speech',
+and a stale/removed provider resolves via resolveActiveProvider to the server default, else the first
+available brain, else null. EMPTY_CONFIG is the safe all-unavailable fallback when /api/config can't
+be fetched. lib/use-capabilities.ts is the thin React shell (matches the repo's "logic in tested pure
+module, thin untested hook" idiom): on mount it sniffs the browser, fetches the secret-free /api/config
+(falling back to EMPTY_CONFIG on any error — never a thrown UI), reconciles the persisted settings into
+the conversation store via setSettings (only patching changed fields), and returns { config, browser,
+matrix, loading, hasBrain }. Wired into app/page.tsx: an amber "NO BRAIN" banner (matrix.chat.message)
+when no brain is reachable, per-feature voice hints for any unavailable voiceIn/voiceOut, and the Talk
+button disabled ("VOICE UNAVAILABLE — TYPE BELOW") when voice input can't run — with the text box always
+usable so typing-to-chat works whenever any brain is available; the particle face stays interactive
+throughout. TDD: wrote lib/capabilities.test.ts FIRST (RED — module not found) then implemented (GREEN).
+Verify (all headless, all pass): `npm test` 378/378 green incl. 22 new capabilities specs — detection
+off an injectable scope (full/bare/webgpu-less), autoSelectStt/Tts pick zero-key local vs hosted per
+keys, reconcileSettings keeps valid picks + degrades hosted-STT/openai-TTS/stale-provider, feature
+matrix reports chat off with an "add a key / wire your agent" message while voiceIn/voiceOut stay on
+via browser Whisper + Web Speech (and voiceIn survives on hosted STT alone / dies with no mic),
+EMPTY_CONFIG safe fallback. `npm run typecheck` clean; `npm run build` compiles and prerenders / plus
+the dynamic api routes. Additionally verified over REAL HTTP with `npx next start` and ALL provider keys
+unset: GET / returns 200 (app boots, no throw), GET /api/config returns every provider available:false,
+agentBridge false, stt/tts false, defaultProvider null (the exact no-brain state), and the page shell
+(HOLD TO TALK / type-a-message) renders. Flipped this task's passes -> true.
+UAT (headless_verifiable:true, but browser-only visuals deferred): the degradation LOGIC + no-throw boot
+are fully headlessly verified. A human can additionally confirm in a browser that with zero keys the
+amber NO-BRAIN banner appears, the particle face still animates, browser-Whisper STT records+transcribes
+and Web Speech speaks the reply for a local/dev brain, and that removing GROQ/OPENAI keys visibly routes
+STT to the browser worker + TTS to Web Speech (the banner/hints update without a throw).
