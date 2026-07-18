@@ -1,0 +1,8 @@
+# claude-faces — build journal (append-only)
+#
+# Each Ralph iteration appends a dated entry describing the task it completed.
+# This is the durable memory across stateless runs — read it before starting.
+
+2026-07-18: Harness bootstrapped. Repo initialized; prd.json (58 tasks) + README + Ralph
+harness (ralph.sh, ralph-continuous.sh, progress.sh, CLAUDE.md) in place. No app code yet.
+Next undone task: the first prd.json task with passes=false (top of the array).
