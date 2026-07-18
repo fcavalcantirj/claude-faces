@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useRef } from 'react'
+import { useEffect, useMemo, useRef, type RefObject } from 'react'
 import { Canvas, useFrame } from '@react-three/fiber'
 import { OrbitControls } from '@react-three/drei'
 import * as THREE from 'three'
@@ -14,6 +14,23 @@ import {
   TOTAL,
   type Emotion,
 } from '@/lib/face-points'
+import { mouthShapeForViseme } from '@/lib/mouth-shape'
+
+/** Live lip-sync state the orchestrator mutates each frame (ref-based, no re-render). */
+export interface MouthState {
+  /** Smoothed amplitude 0..1 driving mouth openness. */
+  open: number
+  /** Dominant viseme label, e.g. "viseme_aa". */
+  viseme: string
+}
+
+/**
+ * Where the mouth gets its motion: 'analyser' (real FFT from a TTS clip),
+ * 'estimated' (synthesized envelope for the Web Speech path), or 'off' (hold
+ * the emotion's static mouth). 'analyser' and 'estimated' both read the shared
+ * mouthRef — the orchestrator picks the source and feeds the matching features.
+ */
+export type MouthSource = 'analyser' | 'estimated' | 'off'
 
 // Soft round particle sprite generated in-memory
 function makeSprite(): THREE.Texture {
@@ -33,7 +50,17 @@ function makeSprite(): THREE.Texture {
   return tex
 }
 
-function ParticleFace({ emotion }: { emotion: Emotion }) {
+function ParticleFace({
+  emotion,
+  speaking,
+  mouthSource,
+  mouthRef,
+}: {
+  emotion: Emotion
+  speaking: boolean
+  mouthSource: MouthSource
+  mouthRef?: RefObject<MouthState>
+}) {
   const pointsRef = useRef<THREE.Points>(null)
   const groupRef = useRef<THREE.Group>(null)
 
@@ -82,7 +109,19 @@ function ParticleFace({ emotion }: { emotion: Emotion }) {
       else blink = 0.12 + 0.88 * Math.abs(1 - bt * 2) // 1 -> 0.12 -> 1
     }
 
-    const mouthPulse = em === 'speaking' ? 1 + 0.4 * Math.sin(t * 11) * Math.abs(Math.sin(t * 3.7)) : 1
+    // Real audio-driven mouth: read lip-sync features from the shared mouthRef
+    // and derive per-axis mouth scale from the current viseme + amplitude.
+    // Applied only while speaking; otherwise the emotion's static mouth stands.
+    // (Replaces the old fake `mouthPulse = sin(...)` wiggle.)
+    const speakingActive = speaking || em === 'speaking'
+    let openY = 1
+    let widthX = 1
+    if (mouthSource !== 'off' && speakingActive && mouthRef?.current) {
+      const shape = mouthShapeForViseme(mouthRef.current.viseme, mouthRef.current.open)
+      openY = shape.openY
+      widthX = shape.widthX
+    }
+    const mouthActive = openY !== 1 || widthX !== 1
 
     // glitch: constant static + occasional horizontal scanline tear bursts
     const glitchAmp = em === 'glitch' ? (Math.sin(t * 23) > 0.88 ? 0.3 : 0.03) : 0
@@ -113,10 +152,10 @@ function ParticleFace({ emotion }: { emotion: Emotion }) {
         if (i >= lE0 && i < lE1) y = EYE_Y + (y - EYE_Y) * blink
         else if (i >= rE0 && i < rE1) y = EYE_Y + (y - EYE_Y) * blink
       }
-      // speaking: mouth opens/closes rhythmically
-      if (mouthPulse !== 1 && i >= m0 && i < m1) {
-        y = MOUTH_Y + (y - MOUTH_Y) * mouthPulse
-        x = x * (1 + (mouthPulse - 1) * 0.15)
+      // speaking: mouth opens/closes and widens per the live viseme
+      if (mouthActive && i >= m0 && i < m1) {
+        y = MOUTH_Y + (y - MOUTH_Y) * openY
+        x = x * widthX
       }
       // glitch: static jitter, stronger on horizontal scanline bands
       if (glitchAmp > 0) {
@@ -216,7 +255,22 @@ function Dust() {
   )
 }
 
-export function AgentFace({ emotion }: { emotion: Emotion }) {
+export interface AgentFaceProps {
+  emotion: Emotion
+  /** Force the audio-driven mouth on regardless of emotion (orchestrator flag). */
+  speaking?: boolean
+  /** Lip-sync source; the orchestrator feeds matching features into mouthRef. */
+  mouthSource?: MouthSource
+  /** Live mouth features, mutated per frame by the orchestrator (no re-render). */
+  mouthRef?: RefObject<MouthState>
+}
+
+export function AgentFace({
+  emotion,
+  speaking = false,
+  mouthSource = 'analyser',
+  mouthRef,
+}: AgentFaceProps) {
   return (
     <Canvas
       camera={{ position: [0, 0, 5.6], fov: 42 }}
@@ -225,7 +279,12 @@ export function AgentFace({ emotion }: { emotion: Emotion }) {
     >
       <color attach="background" args={['#070a10']} />
       <fog attach="fog" args={['#070a10', 6, 12]} />
-      <ParticleFace emotion={emotion} />
+      <ParticleFace
+        emotion={emotion}
+        speaking={speaking}
+        mouthSource={mouthSource}
+        mouthRef={mouthRef}
+      />
       <Dust />
       <OrbitControls
         enablePan={false}

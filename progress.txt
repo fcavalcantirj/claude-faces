@@ -151,3 +151,35 @@ speech spectrum, getFeatures().volume oscillates within 0..1, peaks >0.3 above i
 and emits valid non-silence viseme labels; (b) after loud priming then a zeroed spectrum, volume
 decays to <0.05 (~0); plus disconnect/stream/estimate specs. `npm run typecheck` clean; `npm run
 build` compiles and prerenders / and /_not-found. Flipped this task's passes -> true.
+
+2026-07-18: [frontend] Replace the fake sine-wave mouth with real audio-driven visemes in the
+particle renderer — DONE. Extracted the viseme->mouth deformation math into a pure, headlessly
+unit-testable module lib/mouth-shape.ts: mouthShapeForViseme(viseme, open 0..1) -> {openY, widthX}
+scale factors. Per-viseme geometry table (VISEME_GEOM) gives each of wawa-lipsync's 15 visemes a
+jaw drop (vertical) + width (horizontal): viseme_aa opens widest and widens (width 1.32), viseme_O
+/viseme_U round and narrow (0.74/0.64), viseme_sil stays closed even at full amplitude, bilabial
+viseme_PP barely opens; unknown labels fall back to a moderate DEFAULT_GEOM. openY = 1 + open *
+jaw * MAX_OPEN(1.15) about MOUTH_Y; widthX = 1 + open * (width - 1) about the mouth centre; amplitude
+is clamped 0..1 with non-finite -> 0 so at rest (open=0) every viseme yields {1,1}. Rewired
+components/agent-face.tsx: removed the hardcoded `mouthPulse = 1 + 0.4*sin(t*11)*|sin(t*3.7)|` sine
+(~line 85); ParticleFace now takes speaking/mouthSource/mouthRef props and, in the useFrame loop,
+reads live {open, viseme} from the shared mouthRef (ref-based, zero re-renders across ~4,700
+particles) and applies openY/widthX to the mouth particle range RANGES.mouth only when speaking is
+active (prop flag OR emotion==='speaking') and mouthSource!=='off' — otherwise the emotion's static
+mouth target stands. Exposed AgentFace props: speaking?, mouthSource: 'analyser'|'estimated'|'off'
+(default 'analyser'), mouthRef; exported MouthState/MouthSource/AgentFaceProps types so the future
+orchestrator drives the mouth per TTS backend. Updated the demo app/page.tsx to supply a mouthRef
+and, while the 'speaking' emotion is selected, feed the REAL estimated lip-sync envelope
+(estimateFeatures from lib/lipsync, mouthSource='estimated') into it each rAF so a human can watch
+audio-shaped visemes — no new fake sine. TDD: wrote lib/mouth-shape.test.ts FIRST (RED), then the
+impl (GREEN). Verify (all headless, all pass): `npm test` 16/16 green incl. 8 new mouth-shape specs
+(closed at zero amplitude for every viseme, monotonic jaw open on aa, aa widens vs O/U narrow, aa
+opens wider than PP, sil stays shut at full volume, amplitude clamping + non-finite->0, unknown
+viseme sane fallback, finite openY>=1/widthX>0 across all visemes); `npm run typecheck` clean;
+`npm run build` compiles and prerenders / and /_not-found. Flipped this task's passes -> true.
+UAT (headless_verifiable:false — needs a browser): run `npm run dev`, open http://localhost:3000,
+press key 3 (or the SPEAKING button) and confirm the mouth particles open/close and widen/narrow in
+time with the estimated envelope (not a fixed sine); switch to another emotion and confirm the mouth
+settles back to that emotion's static shape within one morph interval; check Chrome devtools
+Performance that the particle loop holds ~60fps while the mouth animates. Full analyser-driven
+lip-sync from a real TTS clip is validated once the TTS router / orchestrator tasks land.

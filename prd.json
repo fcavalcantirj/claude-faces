@@ -132,7 +132,7 @@
       "Verify: when audio stops, the mouth returns to the neutral/emotion target within one morph interval.",
       "Verify: framerate stays ~60fps in Chrome devtools performance while lip-syncing."
     ],
-    "passes": false,
+    "passes": true,
     "headless_verifiable": false
   },
   {
