@@ -1007,6 +1007,23 @@
       "Verify: `npm run test:coverage` exits 0 and prints a summary table with a real percentage.",
       "Verify: the reported percentage is recorded verbatim in progress.txt."
     ],
+    "passes": true,
+    "headless_verifiable": true
+  },
+  {
+    "category": "frontend",
+    "description": "Add component-level test coverage to reach the 80% floor",
+    "steps": [
+      "CONTEXT (measured 2026-07-18, first time coverage was ever run): overall coverage is 58.21% statements / 57.68% branches / 60.95% lines, against a stated 80% floor. The shortfall is NOT spread evenly — business logic is already healthy (lib/settings 100%, lib/providers 88.6%, lib/chat 87.2%, lib/face 86.4%, lib/audio 84.5%, lib/tts 82.2%). It is concentrated in React components sitting at 0%: agent-face.tsx (274 lines), settings-panel.tsx (362), page.tsx (216), face-hud.tsx (108), stt-status.tsx, kokoro-status.tsx, face-skin.tsx, eidolon-skin-view.tsx, layout.tsx.",
+      "WHY THEY ARE AT ZERO: no React component testing library is installed. Those components ARE exercised — by the Playwright e2e suite — but @vitest/coverage-v8 cannot see browser-driven execution, so it reports 0%. The number is honest but it understates real verification.",
+      "DECIDE FIRST: is unit-testing components the right investment, or is Playwright coverage sufficient for view code? If the latter, the honest move is to EXCLUDE components from the vitest coverage scope and state that in the config, NOT to leave a permanently-red 80% target nobody intends to hit. Ask Felipe.",
+      "IF unit-testing: add @testing-library/react + @testing-library/jest-dom, and test behaviour rather than markup — the capability matrix driving button state, settings-panel reconciliation, HUD readouts reflecting emotion, status components reflecting model state.",
+      "Do NOT chase the percentage with assertion-free render smoke tests. A test that renders a component and asserts nothing raises coverage while proving nothing, which is worse than the honest 58%.",
+      "lib/face-points.ts is 8.95% and is largely a static coordinate table — consider excluding data modules rather than writing tests that assert a table equals itself.",
+      "RAISE the thresholds in vitest.config.ts as real coverage improves. Never lower them to make a build pass.",
+      "Verify: npm run test:coverage exits 0 and the reported statements percentage has genuinely increased from the recorded 58.21% baseline.",
+      "Verify: every added test fails when the behaviour it covers is deliberately broken (spot-check at least three)."
+    ],
     "passes": false,
     "headless_verifiable": true
   },

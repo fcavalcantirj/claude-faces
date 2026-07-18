@@ -2228,3 +2228,44 @@ recover-without-reload gap (a spec-vs-implementation conflict closed by an expli
 decision, not by an agent assuming).
 Verify (RUN): the integrity suite passes 7/7; node parses prd.json as an array of 62 with no
 key, category, Verify or boolean violations. Flipped passes -> true. 62/62 (100%).
+
+2026-07-18: [infra] Measure and report real test coverage against the 80% floor — DONE.
+FOUND BY ASKING A QUESTION I HAD NOT ASKED: Felipe asked "all perfect?" and rather than answer
+from memory I ran the two gates nobody had ever run. Coverage was one of them — it had NEVER
+been measured, because @vitest/coverage-v8 was not installed and `--coverage` failed outright.
+The 80% floor had gone unchecked across all 62 tasks we had called done, while "448 tests
+passing" got quoted repeatedly as if it implied coverage. It does not.
+THE REAL NUMBER, recorded verbatim and untuned: 58.21% statements / 57.68% branches / 58.58%
+functions / 60.95% lines. That is BELOW the 80% floor. Stated plainly rather than softened.
+THE SHORTFALL IS NOT EVENLY SPREAD, and the breakdown matters more than the headline. Business
+logic is already healthy: lib/settings 100%, lib/providers 88.58%, lib/chat 87.23%, lib/face
+86.42%, lib/audio 84.52%, lib/tts 82.15%, lib/stt 68.44%. The gap is React components at 0% —
+agent-face.tsx (274 lines), settings-panel.tsx (362), page.tsx (216), face-hud.tsx, the status
+components — plus lib/face-points.ts at 8.95%, which is largely a static coordinate table.
+WHY COMPONENTS READ 0%: no React component testing library is installed at all. Those
+components ARE genuinely exercised — by the Playwright suite, which is what caught the hydration
+crash — but @vitest/coverage-v8 cannot observe browser-driven execution. So 58.21% is honest
+but it UNDERSTATES real verification. Both halves of that sentence matter.
+WHAT I DID RATHER THAN CHASE THE NUMBER: added app/api/media-routes.test.ts (6 tests) for the
+two genuinely untested routes. They are 4-line delegating shims, so this does NOT re-test the
+logic (that lives in lib/stt/hosted.ts and lib/tts/hosted.ts, already covered) — it guards what
+the shims alone own: that runtime stays 'nodejs' (flipping to edge breaks multipart parsing and
+byte streaming at RUNTIME ONLY — it typechecks, builds and deploys fine, then fails in
+production) and that POST delegates with the real process.env. Coverage moved 58.08 -> 58.21;
+small, because the files are small. I did not manufacture more.
+SET A RATCHET, NOT A TARGET: thresholds in vitest.config.ts sit just below the measured level
+(57/56/57/59) so normal churn does not flake the build but a real regression fails it. Proved
+it can fail — temporarily demanded 80% and got "ERROR: Coverage for statements (58.21%) does
+not meet global threshold (80%)", then restored. A threshold you have not watched fail is not a
+threshold. Explicitly did NOT set it at 80: a permanently-red target nobody intends to hit is
+noise, and lowering a threshold to make a build pass is the exact inversion this guards against.
+FILED THE REAL GAP as its own task rather than pretending 58% is fine: "Add component-level test
+coverage to reach the 80% floor". Its first step is a DECISION for Felipe — unit-test the
+components, or accept that Playwright is the right coverage tool for view code and EXCLUDE them
+from vitest scope. Either is defensible; leaving a permanently-unmet 80% is not. That task also
+warns explicitly against assertion-free render smoke tests, which raise coverage while proving
+nothing — worse than an honest 58%.
+Coverage step added to the CI build job. coverage/ added to .gitignore.
+Verify (all RUN, $? captured directly): npm run test:coverage EXIT=0 printing a real summary
+table; the 80% experiment EXIT=1 proving the gate bites; parity 0; typecheck 0; npm test 0 with
+454/454 across 41 files; build 0; CI YAML parses with 7 build steps. Flipped passes -> true.

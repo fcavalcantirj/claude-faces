@@ -36,6 +36,12 @@ jobs:
       - name: Unit tests
         run: npm test
 
+      # Coverage runs with a RATCHET (thresholds in vitest.config.ts set just
+      # below the measured level), so a real regression fails the build. The 80%
+      # target is not met yet — see the component-coverage task in prd.json.
+      - name: Coverage
+        run: npm run test:coverage
+
       - name: Build
         run: npm run build
         env:
