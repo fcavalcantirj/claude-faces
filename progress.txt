@@ -929,3 +929,43 @@ a multi-sentence reply and confirm it speaks FULLY with no ~15s cutoff; (2) conf
 mouth animates during speech via the estimated envelope (mouthSource 'estimated') and settles when
 done; (3) confirm cancel() immediately silences the queued utterances mid-reply (barge-in); (4) pick
 a different voice in settings and confirm the next reply uses it.
+
+--- 2026-07-18 ---
+Task (backend): Add the streaming gpt-4o-mini-tts route for high-quality voice-out.
+Added POST /api/tts — the hosted, high-fidelity voice-out seam that upgrades the browser
+Web Speech default to OpenAI's streamed gpt-4o-mini-tts (real FFT-driven lip-sync). Followed
+the established thin-route pattern: app/api/tts/route.ts (runtime='nodejs', maxDuration=60) is a
+one-liner delegating to lib/tts/hosted.ts::synthesizeHosted(request, { env }), which holds ALL
+logic with env+fetch injected so it is fully headlessly unit-testable with no network.
+Contract: POST { text, voice?, format? } (JSON). Selection/validation order — (1) require
+OPENAI_API_KEY FIRST; with no key return a typed AdapterError('unavailable') → 400 so the client
+falls back to Web Speech (NO upstream call); (2) parse JSON (malformed/non-object → 400
+bad_request); (3) validate text — empty/whitespace → 400 bad_request, >4096 chars (MAX_TTS_CHARS,
+OpenAI's own per-request cap) → 413, BOTH before any upstream call; (4) POST OpenAI
+/v1/audio/speech with { model: gpt-4o-mini-tts, voice, input, response_format }, forwarding
+request.signal so barge-in aborts synthesis; (5) stream upstream.body straight back untouched —
+NO buffering — with content-type from the format map and 'x-accel-buffering: no' so playback (and
+the wawa-lipsync analyser tap) begins before the full clip arrives. Voice is forgiving: an unknown
+voice/format degrades to OPENAI_TTS_VOICE/OPENAI_TTS_FORMAT (or alloy/mp3) rather than erroring.
+Env knobs honored for consistency with the STT route: OPENAI_TTS_MODEL, OPENAI_TTS_VOICE,
+OPENAI_TTS_FORMAT. Format→MIME map (contentTypeFor): mp3→audio/mpeg, opus→audio/ogg, aac→audio/aac,
+flac→audio/flac, wav→audio/wav, pcm→audio/pcm. Errors normalize via the shared provider seam
+(errorForStatus/normalizeError/AdapterError): upstream 401→401 unauthorized, 500→502 upstream_error,
+unreachable fetch TypeError→502 network — the OPENAI_API_KEY never appears in any response body.
+TDD: wrote lib/tts/hosted.test.ts FIRST (RED — module missing) then implemented (GREEN).
+Verify (all headless, all pass): `npx vitest run lib/tts/hosted.test.ts` 13/13 green — streams
+gpt-4o-mini-tts audio in two chunks and asserts res.body is a ReadableStream with x-accel-buffering:no
+(proves streamed, unbuffered); honors request voice+format and the Content-Type map; unknown voice
+degrades to the env default; OPENAI_TTS_MODEL/FORMAT knobs applied; no-key → 400 unavailable with 0
+fetches; empty text → 400 and oversize → 413 both with 0 fetches; malformed JSON → 400; upstream
+401→unauthorized (no sk- leak) / 500→502 upstream_error / fetch TypeError→502 network; request.signal
+propagates to the upstream fetch (aborting the controller aborts the forwarded signal). `npm run
+typecheck` clean; `npm test` 292/292 green (26 files); `npm run build` compiles and registers
+/api/tts as a dynamic route. No app-template exists yet (later task), so no sync-template run needed.
+Flipped this task's passes -> true.
+UAT (headless_verifiable:false — needs a live/paid OPENAI_API_KEY + a browser with audio playback):
+(1) POST /api/tts { text } and confirm the audio streams — first bytes arrive before the clip
+finishes (curl -N shows progressive output); (2) play the returned audio through an <audio> element
+on the shared AudioContext and confirm wawa-lipsync's analyser taps it to drive the particle mouth;
+(3) unset OPENAI_API_KEY and confirm the client receives the typed 'unavailable' error and falls back
+to Web Speech; (4) trigger barge-in mid-utterance and confirm request abort stops synthesis.

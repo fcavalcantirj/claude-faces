@@ -437,7 +437,7 @@
       "Verify: POST returns a playable streamed audio response that starts before completion.",
       "Verify: the returned audio, played through an audio element on the shared AudioContext, is tappable by the wawa-lipsync analyser; a missing key returns a typed error the client handles."
     ],
-    "passes": false,
+    "passes": true,
     "headless_verifiable": false
   },
   {
