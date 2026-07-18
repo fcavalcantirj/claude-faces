@@ -2143,3 +2143,49 @@ the mic, say a phrase, and confirm transcript -> reply -> AUDIBLE speech -> face
 Deploy a SECOND time with NO keys and confirm it degrades gracefully rather than erroring.
 (5) Record the working deployment URL in README.md — that line is still unwritten because no
 deployment exists yet.
+
+================================================================================
+2026-07-18: RETROACTIVE UAT INDEX — consolidated human checklist (claude_opus_eval)
+================================================================================
+WHY THIS EXISTS: 20 headless_verifiable:false tasks were completed and flipped to passes:true
+WITHOUT a UAT: line, so the specifics of what a human must confirm were never written down.
+uat.sh always listed those tasks by title (it reads the flags from prd.json, so nobody was ever
+flying blind) — what was missing was the actionable detail.
+HOW IT WAS BUILT, stated so nobody mistakes it for fresh investigation: each line below is
+DISTILLED FROM THAT TASK'S OWN "Verify:" STEPS in prd.json, filtered to drop the checks an
+agent already ran headlessly (typecheck/build/npm test/grep) and keep the ones needing eyes,
+ears, hands, a browser, a live key, or external infrastructure. These are NOT new findings and
+NOT re-verified work — they are the existing acceptance criteria, made explicit and collected
+in one place.
+NOTE: tasks completed later in this run (#47, #49, #50, #52, #54, #57) already carry their own
+contemporaneous UAT: lines above, written at the time with richer context. Where a task appears
+both here and above, PREFER THE ENTRY ABOVE — this index is the safety net, not the source of
+truth. Run ./uat.sh for the authoritative list of which tasks need review.
+
+UAT: #3 Port the EIDOLON particle face component and neutralize branding — temporarily mount AgentFace with emotion='neutral', run npm run dev, and confirm the particle face renders and all 12 emotions cycle via keys 1-0/Q/W with no console errors.
+UAT: #6 🚨 URGENT: Add cross-origin isolation headers so browser Whisper (transformers.js/WebGPU) can run — in devtools console self.crossOriginIsolated is true on the app origin. navigator.gpu resolves an adapter in Chrome/Edge without a COEP error. the particle face still renders with the new headers applied.
+UAT: #8 Replace the fake sine-wave mouth with real audio-driven visemes in the particle renderer — playing a TTS clip through the analyser visibly opens/closes the mouth particles in time with the audio, not on a fixed sine. framerate stays ~60fps in Chrome devtools performance while lip-syncing.
+UAT: #12 Implement the Anthropic Messages streaming adapter (Mode A) — a scripted streamChat over ANTHROPIC_API_KEY yields multiple delta events then a done event.
+UAT: #13 Implement the OpenRouter unified adapter (Mode A; also fronts Nous Hermes and other models) — listModels() includes at least one Hermes model; a 401 from a bad key surfaces as a typed AdapterError.
+UAT: #14 Implement the Groq fast-inference adapter (Mode A) — a missing GROQ_API_KEY excludes the adapter; a bad key surfaces as a typed AdapterError.
+UAT: #15 Implement the agent-bridge adapter (Mode B — reuse a running agent as the brain) — with a local Ollama running, streamChat yields deltas from a local model. with AGENT_BRIDGE_KIND=hermes against a reachable Hermes api_server, a session is created and chat returns a reply.
+UAT: #20 Implement microphone capture and push-to-talk recording — hold-to-talk records and yields a non-empty opus blob under the size cap. denying mic permission shows a typed hint and leaves typing available; releasing reliably ends the recording.
+UAT: #21 Add hands-free voice activity detection (VAD) with Silero/ONNX — hands-free, speaking a sentence auto-starts and auto-ends a turn end-to-end. speaking over the agent's TTS interrupts it (barge-in); background noise below threshold does not start a turn.
+UAT: #22 Implement the in-browser Whisper worker (transformers.js, WebGPU with WASM fallback) — the worker loads whisper-base once, reports progress, and transcribes a short clip to correct text offline (airplane mode).
+UAT: #23 Add the Whisper model download and caching UX — a reload skips re-download and shows 'cached/ready'; canceling routes STT to the hosted fallback.
+UAT: #24 Upgrade /api/transcribe into a hosted STT fallback (Groq whisper-large-v3-turbo, OpenAI fallback) — with GROQ_API_KEY set, a short webm/opus clip returns accurate text and provider 'groq'. with only OPENAI_API_KEY set, it falls back to OpenAI; an oversize clip returns 413 with no upstream call.
+UAT: #25 Implement STT auto-selection (browser-first, hosted fallback) — 'auto' uses the browser worker when cached and hosted when it is not. pulling the network still transcribes via the cached browser model; with neither path, the UI shows a clear message and keeps text input working.
+UAT: #26 Implement Web Speech API TTS with chunking and boundary-driven mouth — a multi-sentence reply speaks fully without the ~15s cutoff.
+UAT: #27 Add the streaming gpt-4o-mini-tts route for high-quality voice-out — POST returns a playable streamed audio response that starts before completion. the returned audio, played through an audio element on the shared AudioContext, is tappable by the wawa-lipsync analyser; a missing key returns a typed error the client handles.
+UAT: #28 Build the TTS router that routes real audio into the lip-sync analyser and supports barge-in — OpenAI TTS produces real FFT-driven lip-sync visibly better than the Web Speech estimate.
+UAT: #29 Add the all-local Kokoro-82M WebGPU TTS engine (stretch) — with Kokoro selected, replies are spoken fully offline and drive FFT lip-sync. a Kokoro load failure degrades to Web Speech without a crash; the model caches and reloads without re-download.
+UAT: #31 Wire the full conversation orchestrator (listen -> transcribe -> chat -> speak -> lip-sync -> emotion) — a full spoken turn runs end-to-end: mic -> transcript -> streamed reply -> spoken audio -> lip-synced mouth -> resting emotion. interrupting mid-reply cleanly starts a new turn; the face shows thinking during the stream and speaking synced to audio.
+UAT: #34 Add self-host artifacts (Dockerfile + compose) for hosting next to the agent — docker compose up serves the app on the configured port. with an agent reachable on the same network, Mode B (agent-bridge) connects over its private URL without a tunnel.
+UAT: #37 Write the dev-with-kill script that kills any previous server before starting — run the script twice in a row; only one process listens on the port (lsof -ti tcp:3000 | wc -l returns 1). the browser opens to the running app (or is skipped with --no-open) and the face renders.
+UAT: #47 Add the Deploy with Vercel button and env prompt wiring — the button URL parses and its env query param equals ANTHROPIC_API_KEY,OPENROUTER_API_KEY,GROQ_API_KEY,OPENAI_API_KEY. clicking the rendered button opens the Vercel clone page listing all four env prompts (manual check).
+UAT: #49 Set up the app test/eval harness (Vitest unit + Playwright browser) — the harness can grant mic permission and inject a fake audio stream.
+UAT: #50 Eval: STT accuracy smoke test (browser + hosted) — the browser-Whisper transcript contains the expected keywords; the auto fallback path is exercised. the test runs without real network calls for the hosted case.
+UAT: #52 Eval: lip-sync fires on real audio — analyser volume is non-flat and time-aligned with the fixture audio; mouth displacement tracks volume. silence produces near-zero mouth motion.
+UAT: #54 Eval: no-keys graceful degradation path — zero-key boot has no console errors and an interactive face; STT/TTS fall back to fully-local engines.
+UAT: #56 Add GitHub Actions CI — the workflow passes on a clean checkout. introducing a claude-named SKILL.md name or an out-of-sync template makes CI fail as designed (manual check).
+UAT: #57 Verify the Deploy-with-Vercel clone end-to-end — the button-driven deploy builds and serves the app without manual config beyond env prompts. the no-keys deploy loads and degrades gracefully rather than erroring.
