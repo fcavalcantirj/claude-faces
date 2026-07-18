@@ -813,7 +813,7 @@
       "Verify: SSE deltas arrive incrementally, not as one buffered blob; abort cancels upstream and stops token accumulation.",
       "Verify: unknown/keyless providers return the documented error codes."
     ],
-    "passes": false,
+    "passes": true,
     "headless_verifiable": true
   },
   {

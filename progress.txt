@@ -1768,3 +1768,35 @@ UAT: confirm STT with a REAL microphone and your own voice (the harness proves c
 synthetic device works, not your hardware), and confirm the HOSTED path against a live
 GROQ_API_KEY / OPENAI_API_KEY — every hosted assertion here runs against a mocked transport by
 design, so the real provider contract (auth, rate limits, actual accuracy) is unproven.
+
+2026-07-18: [backend] Eval: streaming chat works end-to-end through /api/chat — DONE.
+Audited existing coverage FIRST rather than writing the task's tests verbatim: route.test.ts
+already had 9 tests covering incremental per-delta flushing, unknown-provider 400, keyless
+'unavailable' 400, oversized/invalid/empty bodies, mid-stream adapter failure and signal
+wiring; client.test.ts already covered progressive deltas, sentence dispatch to TTS,
+[[face:happy]] stripping and barge-in. Re-implementing those would have been duplication.
+The REAL gap: both suites test their half against a HAND-ROLLED counterpart — the route
+against a hand-written adapter, the client against a hand-written SSE stream. Nothing proved
+the two halves COMPOSE, i.e. that the bytes the route actually emits are the bytes the client
+actually parses. tests/chat.stream.test.ts (6 tests) closes exactly that: it registers the
+shared tests/helpers/mock-adapter.ts into the REAL registry and pipes the REAL route Response
+into the REAL streamChat/runChat client via a fetchImpl that calls POST directly — no network,
+no keys, no fabricated SSE. Asserts: every delta survives the round trip in order; the FIRST
+SENTENCE is handed to TTS strictly BEFORE onDone (index-compared, not merely present — that
+early handoff is what lets the face start talking before the model finishes); a trailing
+[[face:happy]] is stripped from result.text and from every onSentence payload while surviving
+in result.raw, and resolves emotion 'happy'; a mid-stream adapter error surfaces as a typed
+AdapterError; a client abort propagates all the way into adapter cancellation; unknown provider
+throws AdapterError.
+NON-VACUITY CHECKED (two mutations, both correctly caught): removing the abort made
+deltasProduced hit 5 -> 'expected 5 to be less than 5' FAILED; inverting the directive
+assertion showed result.text is genuinely 'That is wonderful news.' with the directive gone.
+Also strengthened the abort test with a LOWER bound (deltasProduced >= 1) — without it the
+assertion would pass vacuously if the adapter never started at all.
+PROCESS NOTE (second time today): `npm run typecheck | tail -1 && echo OK` printed OK while
+tsc was actually FAILING — the pipeline's exit status is tail's, not tsc's. It hid a real
+error (code 'upstream' is not an AdapterErrorCode; the valid value is 'upstream_error').
+Fixed the code and re-ran every gate capturing $? directly. Never infer a gate's result from
+a pipeline.
+Verify (all RUN, exit codes captured directly): typecheck EXIT=0; npm test EXIT=0 with 429/429
+across 37 files (up from 423/36); npm run build EXIT=0. Flipped passes -> true.
