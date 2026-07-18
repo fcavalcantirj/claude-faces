@@ -99,6 +99,15 @@ class EidolonSkin implements FaceSkin, EidolonSkinDriver {
       import('react-dom/client'),
       import('./eidolon-skin-view'),
     ])
+    // Idempotent remount: React StrictMode double-invoke, a skin switch, or a
+    // re-entry can call mount() again while a root is already live. Tear the
+    // prior root down first — never call createRoot() twice on a container that
+    // still holds a root, which logs "already been passed to createRoot()",
+    // orphans the first Three.js scene, and leaks its WebGL context.
+    if (this.root) {
+      this.root.unmount()
+      this.root = null
+    }
     const root = createRoot(container)
     this.root = root
     root.render(createElement(EidolonSkinView, { driver: this }))

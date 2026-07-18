@@ -1982,3 +1982,51 @@ equivalence is strong evidence but is NOT the same as a clean ubuntu-latest runn
 npm ci + `npx playwright install --with-deps chromium` from scratch. Watch the first run and
 check the e2e job in particular, since headless chromium on a runner (no GPU) may behave
 differently from this Mac for the WebGL/canvas assertions.
+
+---
+2026-07-18 — Task: Guard the Eidolon skin against double createRoot on the same container (frontend, headless_verifiable:true) — NOT flipped to passes:true (see UNVERIFIED gate below)
+
+The bug: EidolonSkin.mount() called createRoot(container) with no guard and set
+this.root. A remount (React StrictMode double-invoke, a skin switch, or re-entry)
+created a SECOND root over the same container — React logs "You are calling
+ReactDOMClient.createRoot() on a container that has already been passed to
+createRoot()", orphaning the first root's Three.js scene and leaking a WebGL context.
+
+The fix (components/skins/eidolon-skin.tsx only): made mount() idempotent — if
+this.root already exists, unmount it and null it BEFORE creating a new root. So a
+remount tears the prior root (and its R3F/Three.js renderer + WebGL context, disposed
+via root.unmount()) down first; createRoot() is never called twice on a live container.
+exposeE2EHook() is kept exactly as-is and still called for the active root, preserving
+the ?e2e=1 gating the lip-sync eval relies on. dispose() already unmounts + nulls
+this.root (which disposes the renderer via R3F cleanup) — left unchanged.
+
+TDD: added a RED unit test to components/skins/skins.test.ts. It vi.mock()s
+react-dom/client (createRoot) and ./eidolon-skin-view so mount() runs headless in
+jsdom (no real WebGL); it mounts twice on the same container and asserts
+live-roots = (createRoot calls − unmount calls) <= 1. RED confirmed first: pre-fix
+value was 2 ("expected 2 to be less than or equal to 1"). GREEN after the fix.
+
+Verify (each exit code captured directly, real output read — NOT via a pipe's status):
+- `npm test`          => EXIT=0. 37 files / 430 tests passed, including the new
+  "mount is idempotent — a remount never leaves two live roots on the same container".
+- `npm run typecheck` => EXIT=2, BUT every error is pre-existing and outside my
+  territory: "Cannot find module '@playwright/test'" + implicit-any noise in
+  tests/e2e/*.spec.ts and playwright.config.ts. My two edited files
+  (components/skins/eidolon-skin.tsx, components/skins/skins.test.ts) produce ZERO
+  typecheck errors. Root cause: node_modules/@playwright/test is absent in this env.
+  I did not (and must not) install it — package.json and tests/e2e/** are owned by the
+  concurrently-running agent claude_opus_eval.
+- `PLAYWRIGHT_PORT=3102 npm run test:e2e` => COULD NOT RUN. "sh: 1: playwright: not
+  found", EXIT=127. @playwright/test is not installed, so the lip-sync e2e (the
+  designated definitive proof that the "already been passed to createRoot" warning is
+  gone) cannot be executed headlessly here.
+
+DECISION: because the e2e verify step cannot run in this environment, and per the task
+rule "if any verify step cannot run … do NOT set passes=true", task #60 is LEFT at
+passes:false. The fix + RED->GREEN unit proof are committed; the browser e2e leak-gone
+check must be run (once playwright is installed) before flipping this task.
+
+UAT: run `PLAYWRIGHT_PORT=3102 npm run test:e2e` after @playwright/test is installed and
+confirm the lip-sync spec passes AND the console shows NO "already been passed to
+createRoot" warning; also re-run `npm run typecheck` (expected 0 once playwright deps
+resolve). Then flip prd.json task #60 to passes:true.
