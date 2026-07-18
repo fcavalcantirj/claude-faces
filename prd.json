@@ -81,7 +81,7 @@
       "Verify: grep NEXT_PUBLIC .env.example returns nothing (no secret is client-exposed).",
       "Verify: .env.example lists all Mode A + Mode B keys plus the transcription knobs and a degradation note."
     ],
-    "passes": false,
+    "passes": true,
     "headless_verifiable": true
   },
   {

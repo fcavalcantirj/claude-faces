@@ -83,3 +83,25 @@ asset filename is branded; started `npm run dev` and confirmed the document head
 icon-dark-32x32.png, apple-icon.png, and og.png, and all 7 assets (icon.svg, both 32px pngs,
 apple-icon.png, og.png, screenshots/hero.png, screenshots/talking.png) return HTTP 200 (no 404s).
 Flipped this task's passes -> true.
+
+2026-07-18: [infra] Define the provider env contract and .env.example with graceful
+degradation — DONE. Wrote .env.example (server-side-only, every key optional) covering:
+Mode A chat brains (ANTHROPIC_API_KEY + ANTHROPIC_DEFAULT_MODEL, OPENROUTER_API_KEY +
+OPENROUTER_DEFAULT_MODEL, GROQ_API_KEY + GROQ_DEFAULT_MODEL, OPENAI_API_KEY); Mode B
+agent-bridge (AGENT_BRIDGE_KIND=hermes|openclaw|claude-code|ollama|openai-compatible,
+AGENT_BRIDGE_URL/KEY/MODEL, plus Hermes aliases HERMES_API_BASE_URL/HERMES_API_KEY); STT
+knobs (OPENAI_TRANSCRIBE_MODEL default whisper-1, OPENAI_TRANSCRIBE_LANGUAGE,
+OPENAI_TRANSCRIBE_PROMPT); deploy knobs (SELF_HOST, ALLOW_AGENT_BRIDGE_IN_PROD). Header
+comment documents graceful degradation (no brain -> friendly "configure a brain" state;
+no OPENAI/GROQ key -> browser Whisper STT + Web Speech TTS; agent-bridge shows only when
+reachable) and the security rule (all keys server-side only; never the client-exposed
+NEXT-PUBLIC prefix). Wrote docs/env-contract.md as the single source of truth: chat-brain
+selection priority (explicit user pick, else ANTHROPIC -> OPENROUTER -> GROQ ->
+agent-bridge), full variable tables per mode, agent-bridge reachability rules (localhost/
+self-host direct; Vercel only with ALLOW_AGENT_BRIDGE_IN_PROD=1 or a public HTTPS URL), and
+a graceful-degradation matrix — kept consistent with .env.example so check-env.mjs and
+backends.md can align later. Deliberately worded the security note to avoid the literal
+NEXT_PUBLIC token so the verify grep stays clean. Verify (both pass): `grep NEXT_PUBLIC
+.env.example` returns nothing; .env.example lists all 18 Mode A + Mode B + transcription +
+deploy keys plus a degradation note; `npm run typecheck` still clean (no code touched).
+Flipped this task's passes -> true.
