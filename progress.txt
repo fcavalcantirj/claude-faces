@@ -2057,3 +2057,22 @@ account, then re-run the workflow (`gh run rerun 29656048907` or push any commit
 all three jobs go green — paying particular attention to the e2e job, since headless chromium
 on a GPU-less runner may behave differently from this Mac for the WebGL/canvas assertions.
 >>>>>>> ea7f1d6 (Record CI first-run result: blocked by GitHub account billing lock)
+
+2026-07-18: [frontend] Guard the Eidolon skin against double createRoot — VERIFIED AND FLIPPED
+(fix authored by dasbrow in d32aaf9; I verified and closed it out). Its mount() now tears down
+any live root before creating a new one, and it correctly built the guard AROUND my
+exposeE2EHook() rather than deleting it (+9 lines, no deletions). Independently verified rather
+than taken on trust: full `npx playwright test` EXIT=0, 14 passed, and `grep -ci "already been
+passed to createRoot"` over the whole run output returns 0 — the warning is genuinely gone, not
+merely unasserted. Unit suite 430 passed (up from 429; dasbrow added an idempotency test).
+CLOSED THE ALLOWLIST LOOP: tests/e2e/degradation.spec.ts KNOWN_TRACKED is now EMPTY and the
+spec still passes with a strict zero-tolerance console-error gate. That list briefly held two
+entries — the hydration mismatch and this createRoot bug — both surfaced by this harness, and
+BOTH were fixed rather than tolerated, so the allowance emptied itself. That is the honest
+outcome: an allowlist that never shrinks is where bugs go to be forgotten.
+REPAIRED INBOUND DRIFT AGAIN: d32aaf9 edited components/skins/eidolon-skin.tsx — a mirrored
+root app file — without re-running sync-template.mjs, so main was again out of parity (this is
+the second occurrence, after acc14ca did the same via package.json, and after an explicit
+warning). Synced (77 files, 1 updated), parity EXIT=0. Not a judgement on the fix, which is
+correct and well-commented — it is exactly the class of miss the CI parity gate exists to make
+impossible, which is a good argument for unblocking Actions.

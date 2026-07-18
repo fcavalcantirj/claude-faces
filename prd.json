@@ -956,7 +956,7 @@
       "Verify: npm test green (including the new idempotency test), npm run typecheck exits 0.",
       "Verify: npm run test:e2e passes AND the browser console during the smoke run contains no 'already been passed to createRoot' warning."
     ],
-    "passes": false,
+    "passes": true,
     "headless_verifiable": true
   },
   {

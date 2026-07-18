@@ -35,14 +35,14 @@ async function mockConfig(page: Page, body: unknown) {
 /**
  * Collect console errors and uncaught exceptions.
  *
- * KNOWN_TRACKED is the allowance list for app bugs already filed in prd.json.
- * It started with the hydration mismatch too — but that one (#59) surfaced HERE
- * as an uncaught exception, so it was fixed rather than allowed, and its entries
- * are now gone. What remains is the double createRoot (#60, owned by dasbrow).
- * When that lands, empty this list entirely; if the spec then stays green, every
- * allowance was honest.
+ * KNOWN_TRACKED is now EMPTY, and that is the point. It briefly held two
+ * entries — the hydration mismatch and the double createRoot — both surfaced by
+ * this harness. Both were fixed rather than tolerated (the hydration one turned
+ * out to be an uncaught exception, not a warning), so the allowance list emptied
+ * itself and the spec still passes. An allowlist that never shrinks is a place
+ * bugs go to be forgotten; keep this at zero.
  */
-const KNOWN_TRACKED = [/already been passed to createRoot/i];
+const KNOWN_TRACKED: RegExp[] = [];
 
 function watchErrors(page: Page) {
   const consoleErrors: string[] = [];
