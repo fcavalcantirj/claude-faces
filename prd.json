@@ -330,7 +330,7 @@
       "Verify: hold-to-talk records and yields a non-empty opus blob under the size cap.",
       "Verify: denying mic permission shows a typed hint and leaves typing available; releasing reliably ends the recording."
     ],
-    "passes": false,
+    "passes": true,
     "headless_verifiable": false
   },
   {

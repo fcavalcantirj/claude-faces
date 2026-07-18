@@ -609,3 +609,49 @@ after unsubscribe; a stray delta after finalize opens a fresh assistant turn; pl
 `npm run typecheck` clean; `npm run build` compiles and prerenders / and /_not-found (+ dynamic
 /api/chat, /api/config). No app-template dir yet, so no sync-template step. Flipped this task's
 passes -> true.
+
+2026-07-18: [frontend] Implement microphone capture and push-to-talk recording — DONE.
+Added lib/audio/recorder.ts (MicRecorder) wrapping getUserMedia({audio:true}) + MediaRecorder
+behind a headlessly-testable seam: the browser primitives (getUserMedia, MediaRecorder,
+isTypeSupported, AudioContext resume, setTimeout/clearTimeout) are all INJECTED via RecorderDeps so
+the whole lifecycle runs under jsdom with fakes — no real mic. negotiateMimeType() does opus-first
+MIME negotiation over PREFERRED_MIME_TYPES (audio/webm;codecs=opus preferred, then webm/ogg-opus/ogg/
+mp4/wav, "" = browser default) via MediaRecorder.isTypeSupported. start() requests the mic LAZILY on
+the first record gesture and KEEPS the MediaStream alive across cycles so repeated recordings never
+re-prompt (verified: getUserMedia called exactly once over two start/stop cycles); it resumes the
+shared AudioContext (autoplay policy) to unlock downstream lip-sync, then spins a MediaRecorder with a
+250ms timeslice so the size guard can react mid-clip. stop() returns the assembled Blob (chunks joined
+with the negotiated MIME); the live MediaStream is exposed via the `stream` getter (for VAD /
+stream-based lip-sync). Permission/device errors are normalized by mapGetUserMediaError into a typed,
+recoverable RecorderError (kinds permission-denied | no-device | not-supported | insecure-context |
+unknown) — start() rejects with it AND parks the recorder in state 'error' (getError()) instead of
+crashing, so typing stays available and a later gesture retries cleanly (NotAllowedError ->
+permission-denied verified; missing getUserMedia -> not-supported). Two auto-stop guards keep a clip
+well under the ~4.5MB hosted-STT cap: DEFAULT_MAX_BYTES=4MB (ondataavailable accumulates bytes and
+auto-stops once the cap is crossed) and DEFAULT_MAX_DURATION_MS=60s (a scheduled timer auto-stops a
+stuck recording); an auto-stop finalizes and hands the clip to the onResult sink (no awaited stop() in
+flight). onStateChange() notifies subscribers on idle/requesting/recording/stopping/error transitions;
+dispose() stops the underlying tracks and releases the stream (next start() re-prompts). Added
+lib/audio/push-to-talk.ts (createPushToTalk) — a framework-free binding: onKeyDown/onKeyUp for hold-Space
+(ignores key auto-repeat so a held Space records once; ignores Space while focus is in an INPUT/TEXTAREA/
+SELECT/contentEditable so typing keeps the space; preventDefault on the trigger key) plus onPointerDown/
+onPointerUp for press-and-hold on the Talk button, a cancel() for window-blur safety, and attach(target)
+that wires keydown/keyup/blur and returns a detach fn. press() invokes recorder.start() synchronously on
+the gesture and routes any (a)sync failure to onError (never throws at the callsite); release() awaits
+stop() and delivers only a NON-EMPTY blob to onResult. TDD: wrote lib/audio/recorder.test.ts and
+lib/audio/push-to-talk.test.ts FIRST (RED) then implemented (GREEN). Verify (all headless, all pass):
+`npm test` 190/190 green incl. 20 new specs — negotiateMimeType opus-first/fallthrough/empty; hold-to-talk
+yields a non-empty webm blob under 4.5MB then returns to idle; mic requested only once across cycles;
+denied permission -> RecorderError(permission-denied), state 'error', NO recorder created, retry rejects
+cleanly; size-cap auto-stop emits an onResult blob; duration-cap timer auto-stops; start() idempotent while
+recording; state subscribers fire; dispose() stops tracks; missing getUserMedia -> not-supported; PTT starts
+on press/stops on release delivering the blob, ignores auto-repeat (records once), ignores Space while typing,
+ignores non-Space keys, pointer press-and-hold works, empty clip is dropped, release-without-press is a no-op,
+start failure routes to onError. `npm run typecheck` clean; `npm run build` compiles and prerenders / and
+/_not-found (+ dynamic /api/chat, /api/config). No app-template dir yet, so no sync-template step. Flipped
+this task's passes -> true.
+UAT (headless_verifiable:false — needs a browser + real microphone): run `npm run dev`, hold Space (or
+press-and-hold the Talk button) and confirm the mic permission prompt appears once, that holding records and
+releasing yields a non-empty opus/webm clip under the size cap, that denying permission shows a recoverable
+hint and leaves typing usable (no crash), that a >60s hold auto-stops, and that Space typed inside a text
+field inserts a space instead of recording.
