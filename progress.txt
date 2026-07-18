@@ -2207,3 +2207,24 @@ says explicitly that if anyone later adds hot-recovery this assertion SHOULD fai
 removed. A decision that only lives in a chat log is a decision that gets silently reversed.
 Verify (RUN): playwright degradation spec EXIT=0, 4 passed, including the new reload assertion.
 Flipped passes -> true.
+
+2026-07-18: [infra] Finalize the deliverable prd.json at repo root — DONE. 62/62.
+Validated the deliverable against its own acceptance criteria and then made that validation
+PERMANENT rather than a one-off run: tests/prd-integrity.test.ts (7 tests) asserts prd.json is
+a bare JSON array; every task has EXACTLY the five keys (category, description, steps, passes,
+headless_verifiable) — exactly, so a stray key is caught, not just a missing one; every category
+is within {backend, frontend, docs, skill, infra}; every task carries at least one "Verify:"
+step; passes and headless_verifiable are real booleans and never truthy strings; the URGENT
+marker stays rare (if everything is urgent, nothing is); and descriptions are UNIQUE, so
+progress entries and UAT lines can never be ambiguous about which task they refer to.
+Deliberately does NOT assert headless_verifiable per task — that flag is a fixed human-assigned
+label and no test should imply an agent may retune it.
+Final shape: 62 tasks — frontend 29, backend 10, skill 9, infra 8, docs 6; 35 headless / 27 UAT;
+1 URGENT; all 62 passes:true.
+LEDGER GREW 58 -> 62 DURING THIS RUN, all four added rather than silently fixed, each filed with
+full context: the client-bundle SDK leak (found by running next build --webpack), the hydration
+mismatch and the double createRoot (both surfaced by the Playwright harness), and the
+recover-without-reload gap (a spec-vs-implementation conflict closed by an explicit Felipe
+decision, not by an agent assuming).
+Verify (RUN): the integrity suite passes 7/7; node parses prd.json as an array of 62 with no
+key, category, Verify or boolean violations. Flipped passes -> true. 62/62 (100%).
