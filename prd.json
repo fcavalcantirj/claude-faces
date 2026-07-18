@@ -548,7 +548,7 @@
       "Verify: docker compose up serves the app on the configured port.",
       "Verify: with an agent reachable on the same network, Mode B (agent-bridge) connects over its private URL without a tunnel."
     ],
-    "passes": false,
+    "passes": true,
     "headless_verifiable": false
   },
   {

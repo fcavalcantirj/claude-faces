@@ -1236,3 +1236,37 @@ docs/env-contract.md + .env.example. No runtime surface, so no TDD test (docs/sk
 (both headless, both pass): `wc -l skill/agent-face/SKILL.md` = 192 (<= 500); the frontmatter
 name: line greps clean of claude/anthropic; the description contains the "USE WHEN" clause and all
 five+ trigger phrases. Flipped this task's passes -> true.
+
+2026-07-18: [infra] Add self-host artifacts (Dockerfile + compose) for hosting next to the
+agent — DONE. Gave the app a slim, VPS-runnable self-host image so Mode B (the agent-bridge
+brain) can sit on the SAME private network as an agent you already run and reach it with NO
+public tunnel. Set output: 'standalone' in next.config.mjs (documented as the source of the
+Docker runtime; Vercel ignores it and uses its own pipeline). Multi-stage Dockerfile
+(deps -> build -> runner) on node:22-alpine (matches .nvmrc): `deps` runs `npm ci` from the
+lockfile for a cached, reproducible install; `build` runs `npm run build` — whose `prebuild`
+hook (scripts/setup-vad-assets.mjs) bakes the hands-free VAD/ONNX assets into public/vad/
+before `next build` emits .next/standalone; `runner` is just `node server.js` + public/ +
+.next/static (which the standalone trace does NOT auto-include, so both are copied in
+explicitly where Next expects them), running as a non-root nextjs user with PORT=3000/
+HOSTNAME=0.0.0.0 so the published port is reachable. Added .dockerignore (keeps node_modules,
+.next, .env*, secrets, docs/skill/reference/logs out of the build context and image layers).
+docker-compose.yml runs the app, publishes ${PORT:-3000}, loads ALL config from .env.local
+(env_file), and forces SELF_HOST=1 so the agent-bridge is allowed to reach a PRIVATE-network
+AGENT_BRIDGE_URL (e.g. http://ollama:11434 by service name, or http://172.17.0.1:11434 to hit
+the Docker host) — no ALLOW_AGENT_BRIDGE_IN_PROD, no tunnel; includes a commented service/network
+stub for co-locating the agent. Wrote skill/agent-face/references/deploy.md (new — dir had only
+.gitkeep): a target-comparison table, a full self-host walkthrough (what ships, `docker compose
+up --build` / plain `docker run`, wiring Mode B over the private network three ways, and the
+HTTPS/secure-context reminder for mic + crossOriginIsolated beyond localhost), plus a short
+Vercel section. Verify (headless, all pass): `npm run build` compiles and emits
+.next/standalone/server.js; `npm run typecheck` clean; `npm test` 378/378 green (no regression
+from the config change). Additionally SMOKE-TESTED the exact runtime the image ships — assembled
+the standalone layout the Dockerfile builds (public/ + .next/static copied next to server.js) and
+ran `PORT=3123 node server.js`: GET / returned HTTP 200, GET /api/config returned valid
+secret-free JSON, and the load-bearing COOP (same-origin) + COEP (credentialless) headers were
+present — proving `node server.js` serves the app end-to-end. Flipped this task's passes -> true.
+UAT (headless_verifiable:false — needs a Docker daemon + a running agent): (1) `docker compose up
+--build` and confirm the app serves on http://localhost:3000; (2) with an agent reachable on the
+same private network (e.g. Ollama), set AGENT_BRIDGE_KIND + AGENT_BRIDGE_URL in .env.local and
+confirm Mode B connects over the private URL with no tunnel and the agent-bridge brain appears in
+the settings picker.

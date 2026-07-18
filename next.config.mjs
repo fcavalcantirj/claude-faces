@@ -26,6 +26,12 @@ const CROSS_ORIGIN_ISOLATION_HEADERS = [
 ];
 
 const nextConfig = {
+  // Emit a self-contained server bundle (.next/standalone/server.js) that
+  // traces in only the node_modules it actually needs. This is what the
+  // multi-stage Dockerfile ships as the slim self-host runtime image — see
+  // Dockerfile, docker-compose.yml, and skill/agent-face/references/deploy.md.
+  // Vercel ignores this and uses its own build pipeline.
+  output: 'standalone',
   // Face/particle assets and social images are served as-is; skip the Image
   // Optimization pipeline so self-host (no sharp) and static export both work.
   images: {
