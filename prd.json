@@ -454,7 +454,7 @@
       "Verify: OpenAI TTS produces real FFT-driven lip-sync visibly better than the Web Speech estimate.",
       "Verify: barge-in silences audio and stops the mouth within a frame; switching engine changes voice + mouthSource with no leftover analyser connections."
     ],
-    "passes": false,
+    "passes": true,
     "headless_verifiable": false
   },
   {

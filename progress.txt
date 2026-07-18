@@ -969,3 +969,59 @@ finishes (curl -N shows progressive output); (2) play the returned audio through
 on the shared AudioContext and confirm wawa-lipsync's analyser taps it to drive the particle mouth;
 (3) unset OPENAI_API_KEY and confirm the client receives the typed 'unavailable' error and falls back
 to Web Speech; (4) trigger barge-in mid-utterance and confirm request abort stops synthesis.
+
+2026-07-18: [frontend] Build the TTS router that routes real audio into the lip-sync analyser
+and supports barge-in — DONE. Added lib/tts/index.ts — the ONE seam the orchestrator calls to
+SPEAK a reply regardless of engine, and to STOP instantly for barge-in. TtsRouter (createTtsRouter
+factory + a module-level default with global speak()/stop() the spec asks for) owns a single
+SENTENCE queue and unifies two very different voice-out paths behind it. speak(text,{engine})
+chunks text via chunkForSpeech (reused from web-speech.ts) and appends sentence-sized items, so
+playback starts on the FIRST sentence (the chat client feeds sentences incrementally) — not after
+the full reply arrives. Engine 'web-speech' delegates each sentence to WebSpeechTTS (which writes
+the synthesized envelope into the shared mouthRef → mouthSource 'estimated'); the router serializes
+so WebSpeechTTS.speak() only ever holds one sentence at a time (its replace-on-speak semantics are
+harmless) and its per-utterance onEnd advances the router queue. Engine 'openai' fetches /api/tts
+(POST {text,voice,format}) as a stream, turns the body into a Blob→object URL, plays it through a
+FRESH <audio> element per clip (a tapped element can't be re-tapped), taps it via lib/lipsync
+connectMediaElement (source→analyser→destination) so the mouth is driven by the REAL FFT analyser
+(mouthSource 'analyser', visibly better than the estimate), and runs a rAF loop calling
+lipsync.processFrame()+getFeatures() into mouthRef. Engine 'kokoro' uses the same analyser path via
+an injectable ClipSynthesizer (kokoroSynthesize) — absent in the MVP, so it degrades to Web Speech
+with a warning (the real Kokoro engine lands in its own stretch task). Emotion is driven through
+callbacks: onStart (first sentence → 'speaking'), onEnd (queue drains naturally → resting), plus
+onMouthSource/onEngine/onError/onVoicesChanged so the orchestrator wires AgentFace mouthSource +
+the emotion machine without the router importing React. stop() is the global barge-in: bumps a
+generation counter (stale async continuations no-op), cancels the Web Speech queue, aborts the
+in-flight /api/tts fetch (AbortController), pauses+resets (src='') the audio element, disconnects
+the analyser source so a new utterance attaches with NO leftover connections, stops the rAF loop,
+writes silence to mouthRef, sets mouthSource 'off' — and deliberately does NOT fire onEnd (an
+interrupt is not a natural finish). setEngine() (also reachable via speak(...,{engine})) tears down
+any in-flight analyser clip, preserves queued text, and re-voices it with the new engine. On an
+OpenAI/Kokoro clip failure (missing key/network/load) the router falls back to Web Speech for that
++ remaining text (unless fallbackToWebSpeech:false). Exported errorFromResponse from lib/chat/client.ts
+(was private) to reuse the route's typed { error } body parsing. Every heavy/browser primitive
+(fetch, createLipsync, createWebSpeechTTS, audio element, resumeAudio, createObjectURL/revokeObjectURL,
+raf/caf) is injected so the whole router is headlessly testable under jsdom. TDD: wrote
+lib/tts/index.test.ts FIRST (RED — module missing) then implemented (GREEN). Verify (all headless,
+all pass): `npx vitest run lib/tts/index.test.ts` 9/9 green — default engine web-speech drives the
+estimated mouth and never taps the analyser; sentences speak one-at-a-time and settle onEnd only on
+the LAST sentence (mouthSource→'off'); openai POSTs /api/tts with the sentence text, taps the clip
+through the analyser (mouthSource 'analyser'), plays it, and a rAF tick pulls a real feature into
+mouthRef (open>0, viseme_aa); advancing between clips disconnects the analyser + revokes the prior
+URL; a missing-key 'unavailable' response falls back to Web Speech (onEngine 'web-speech', warn
+fired); stop() pauses+clears the element, disconnects the analyser, halts the rAF loop, writes
+{open:0,viseme_sil}, fires no onEnd, and a late 'ended' from the aborted clip doesn't resurrect the
+turn; switching engine mid-turn tears down the analyser (disconnectCount rises) and flips
+mouthSource estimated↔analyser with no leftover connections; kokoro-without-synth degrades to Web
+Speech; module-level speak()/stop() route to the configured default router. `npm run typecheck`
+clean; `npm test` 301/301 green (27 files); `npm run build` compiles and still registers /api/tts.
+No app-template exists yet (later task), so no sync-template run needed. Flipped this task's
+passes -> true.
+UAT (headless_verifiable:false — needs a browser with audio playback + a live/paid OPENAI_API_KEY):
+(1) with OPENAI_API_KEY set, select the openai engine and confirm the fetched /api/tts clip plays and
+its REAL FFT analyser lip-sync is visibly better/tighter than the Web Speech estimate; (2) trigger
+barge-in (new utterance / VAD-during-speech) and confirm audio is silenced and the mouth stops within
+a frame; (3) switch engine web-speech↔openai and confirm the voice + mouthSource change with no
+leftover analyser connections (no double-audio, no stuck mouth); (4) with no OPENAI_API_KEY, confirm
+the openai path degrades to Web Speech automatically. Full analyser-driven behavior is validated once
+the orchestrator task wires the router to the chat client + emotion store in a real browser.

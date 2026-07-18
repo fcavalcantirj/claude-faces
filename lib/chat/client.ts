@@ -125,7 +125,7 @@ export async function* streamChat(
 }
 
 /** Turn a non-ok `Response` into a typed `AdapterError`, preferring its JSON body. */
-async function errorFromResponse(res: Response, provider: string): Promise<AdapterError> {
+export async function errorFromResponse(res: Response, provider: string): Promise<AdapterError> {
   let shape: unknown
   try {
     const body = (await res.json()) as { error?: unknown }
