@@ -114,15 +114,13 @@ function priorityIndex(id: string): number {
 // ---------------------------------------------------------------------------
 // Built-in adapters
 // ---------------------------------------------------------------------------
-// Each concrete adapter lands in its own task and registers itself here with a
-// single line, e.g.:
-//
-//   import { createAnthropicAdapter } from '@/lib/providers/anthropic'
-//   registerAdapter('anthropic', createAnthropicAdapter)
-//
-// They are intentionally NOT imported yet — the interface, registry, and SSE
-// helper ship first (this task) so the adapter tasks have a seam to slot into.
-// Keep this block the ONE place built-in providers are wired up.
+// Each concrete adapter registers itself here with a single line. Keep this
+// block the ONE place built-in providers are wired up — nothing else in the
+// app learns a provider's name.
+
+import { createAnthropicAdapter } from '@/lib/providers/anthropic'
+
+registerAdapter('anthropic', createAnthropicAdapter)
 
 export {
   AdapterError,

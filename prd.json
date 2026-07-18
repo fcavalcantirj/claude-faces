@@ -197,7 +197,7 @@
       "Verify: a scripted streamChat over ANTHROPIC_API_KEY yields multiple delta events then a done event.",
       "Verify: aborting the AbortSignal stops further deltas; a missing key excludes the adapter from the registry."
     ],
-    "passes": false,
+    "passes": true,
     "headless_verifiable": false
   },
   {

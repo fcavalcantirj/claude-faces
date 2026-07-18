@@ -291,3 +291,40 @@ status mapping, parseSSEStream parses OpenAI-style data: chunks / drops [DONE] /
 across two byte chunks, and errorForStatus/normalizeError code mapping; `npm run typecheck` clean (the
 FakeAdapter typechecks against ChatAdapter); `npm run build` compiles and prerenders / and /_not-found.
 Flipped this task's passes -> true.
+
+2026-07-18: [backend] Implement the Anthropic Messages streaming adapter (Mode A) — DONE.
+Added dependency @anthropic-ai/sdk (0.112.3) and lib/providers/anthropic.ts implementing the
+ChatAdapter seam over the Anthropic Messages API with stream:true. createAnthropicAdapter(deps?)
+builds the adapter behind an injectable createClient seam (default lazily dynamic-imports
+@anthropic-ai/sdk and does `new Anthropic({apiKey})` — lazy so the module stays light and no
+browser-env guard trips at import; tests inject a fake client so the whole adapter is headlessly
+unit-testable with no network/key). streamChat() maps ChatRequest.system -> the top-level system
+param and messages -> {role,content} content blocks, sets stream:true + max_tokens 4096 (the face
+SPEAKS its reply, so concise beats essays), and translates content_block_delta text_delta events
+into StreamEvent {type:'delta'} — thinking_delta and other block types are ignored so only spoken
+assistant text streams; message_delta.stop_reason is captured and emitted as the final {type:'done'}.
+Deliberately does NOT forward req.temperature — it 400s on Opus 4.8/4.7 and Sonnet 5 (the models
+this adapter defaults to), so we steer via prompting per the current API contract. Honors req.signal
+for barge-in: the signal is passed to the SDK stream AND checked at the top of the delta loop, so an
+aborted client cuts off further deltas promptly (loop breaks, then throws AdapterError('aborted')).
+available(env)=Boolean(ANTHROPIC_API_KEY) (pure, no I/O); missing key -> streamChat throws
+'unavailable' and resolveAdapter/listAvailableAdapters exclude it. listModels(env) returns a curated
+current claude-* set (opus-4-8 default, sonnet-5, haiku-4-5, opus-4-7) with the default overridable
+via ANTHROPIC_DEFAULT_MODEL (an override outside the curated list is surfaced+preselected). Errors
+normalize through normalizeAnthropicError: AbortError->aborted, an SDK error's numeric HTTP status
+via errorForStatus (401->unauthorized, 429->rate_limited, 5xx->upstream_error), else normalizeError.
+Wired into the registry: lib/providers/index.ts now imports createAnthropicAdapter and does the ONE
+registerAdapter('anthropic', ...) line (replacing the reserved placeholder comment block). TDD: wrote
+lib/providers/anthropic.test.ts FIRST (RED) then implemented (GREEN). Verify (all headless, all pass):
+`npm test` 96/96 green incl. 11 new anthropic specs — a scripted streamChat over a fake key/client
+yields multiple delta events then a done event (stop_reason 'end_turn'); aborting the AbortSignal
+after the first delta stops further deltas and throws code 'aborted'; a missing key throws 'unavailable'
+(and excludes the adapter); system+messages map correctly with temperature NOT forwarded and stream:true
+set; default model falls back to claude-opus-4-8 and ANTHROPIC_DEFAULT_MODEL overrides the picker
+default; an SDK 401 normalizes to unauthorized; an SDK AbortError normalizes to aborted. `npm run
+typecheck` clean; `npm run build` compiles and prerenders / and /_not-found. Flipped this task's
+passes -> true.
+UAT (headless_verifiable:false — needs a live/paid ANTHROPIC_API_KEY): with a real key set, hit
+/api/chat (once the route lands) selecting the anthropic brain and confirm the model streams multiple
+delta events then a done event, and that cancelling the client request mid-stream (barge-in) promptly
+stops the upstream stream; verify listModels reflects a real ANTHROPIC_DEFAULT_MODEL override.

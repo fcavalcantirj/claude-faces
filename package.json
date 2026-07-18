@@ -13,6 +13,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.112.3",
     "@react-three/drei": "^10",
     "@react-three/fiber": "^9",
     "class-variance-authority": "^0.7.1",
