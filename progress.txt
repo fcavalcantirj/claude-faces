@@ -370,3 +370,42 @@ UAT (headless_verifiable:false — needs a live OPENROUTER_API_KEY): with a real
 /api/chat (once the route lands) selecting the openrouter brain against a cheap model and confirm
 it streams multiple delta events then a done; confirm listModels() returns a live catalog
 including at least one Hermes id; confirm a deliberately bad key yields an unauthorized error.
+
+2026-07-18: [backend] Implement the Groq fast-inference adapter (Mode A) — DONE.
+Added lib/providers/groq.ts implementing the ChatAdapter seam over Groq's OpenAI-compatible
+endpoint https://api.groq.com/openai/v1/chat/completions with stream:true. createGroqAdapter(deps?)
+injects `fetch` (default globalThis.fetch) so the whole adapter is headlessly unit-testable with
+no network/key — structurally a twin of the OpenRouter adapter (same OpenAI-shape streaming) but
+with a curated model list (like Anthropic) rather than a live /models catalog fetch. streamChat()
+sends GROQ_API_KEY as a Bearer token, maps ChatRequest.system into the messages array as a leading
+{role:'system'} turn (OpenAI shape), sets max_tokens 4096 (the face SPEAKS its reply, so concise
+beats essays), and forwards req.temperature when provided (Groq accepts it, unlike Anthropic
+Opus/Sonnet). The upstream text/event-stream is parsed through the shared lib/providers/sse.ts
+parseSSEStream (drops the [DONE] sentinel in one place), each frame JSON.parsed to extract
+choices[0].delta.content into StreamEvent {type:'delta'} (non-JSON keep-alive comment frames
+skipped), and choices[0].finish_reason captured as the final {type:'done'} reason (default 'stop').
+Honors req.signal for barge-in: the signal is passed to the fetch AND checked at the top of the
+delta loop so an aborted client cuts off further deltas (loop breaks, then throws
+AdapterError('aborted')). listModels(env) returns a curated set of current Groq LPU fast models —
+llama-3.3-70b-versatile (default, balances quality + low latency), llama-3.1-8b-instant (fastest
+first token), openai/gpt-oss-120b, openai/gpt-oss-20b — with the default overridable via
+GROQ_DEFAULT_MODEL (an override outside the curated list is surfaced+preselected). available(env)=
+Boolean(GROQ_API_KEY) (pure, no I/O; the same key also gates hosted Whisper STT in the later
+/api/transcribe task); missing key -> streamChat throws 'unavailable' and resolveAdapter/
+listAvailableAdapters exclude it. Non-2xx responses normalize through the shared errorForStatus
+(401/403->unauthorized, 429->rate_limited, 5xx->upstream_error, else bad_request); fetch
+TypeError->network via normalizeError. Wired into the registry: lib/providers/index.ts now imports
+createGroqAdapter and does the ONE registerAdapter('groq', ...) line (groq is already 3rd in the
+documented PRIORITY anthropic>openrouter>groq>agent-bridge). TDD: wrote lib/providers/groq.test.ts
+FIRST (RED) then implemented (GREEN). Verify (all headless, all pass): `npm test` 113/113 green incl.
+8 new groq specs — available only with the key; listModels surfaces >=1 Llama-family model with
+exactly one marked default; GROQ_DEFAULT_MODEL overrides + surfaces a non-curated default; a scripted
+SSE transcript yields incremental deltas then a done (reason 'stop') with the Bearer header and
+stream:true set; system maps to a leading system message; a missing key throws 'unavailable'; a 401
+from a bad key surfaces as a typed unauthorized AdapterError (status 401); aborting the signal after
+the first delta stops further deltas and throws 'aborted'. `npm run typecheck` clean; `npm run build`
+compiles and prerenders / and /_not-found. Flipped this task's passes -> true.
+UAT (headless_verifiable:false — needs a live GROQ_API_KEY): with a real key set, hit /api/chat
+(once the route lands) selecting the groq brain against llama-3.1-8b-instant and confirm it streams
+deltas with a sub-second first token then a done; confirm a deliberately bad key yields an
+unauthorized error, and that a missing GROQ_API_KEY excludes groq from listAvailableAdapters().

@@ -230,7 +230,7 @@
       "Verify: streamChat yields deltas with a sub-second first token then done.",
       "Verify: a missing GROQ_API_KEY excludes the adapter; a bad key surfaces as a typed AdapterError."
     ],
-    "passes": false,
+    "passes": true,
     "headless_verifiable": false
   },
   {
