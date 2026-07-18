@@ -534,7 +534,7 @@
       "Verify: wc -l skill/agent-face/SKILL.md is <= 500.",
       "Verify: a grep for a frontmatter name containing claude/anthropic returns nothing, and the description contains explicit trigger phrases plus a WHEN clause."
     ],
-    "passes": false,
+    "passes": true,
     "headless_verifiable": true
   },
   {

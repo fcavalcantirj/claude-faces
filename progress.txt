@@ -1210,3 +1210,29 @@ are fully headlessly verified. A human can additionally confirm in a browser tha
 amber NO-BRAIN banner appears, the particle face still animates, browser-Whisper STT records+transcribes
 and Web Speech speaks the reply for a local/dev brain, and that removing GROQ/OPENAI keys visibly routes
 STT to the browser worker + TTS to Web Speech (the banner/hints update without a throw).
+
+2026-07-18: [skill] Create the skill/agent-face package and SKILL.md thin router — DONE.
+The skill/agent-face/ package directory (with references/, scripts/, assets/ subfolders)
+already existed from the repo-init task; authored skill/agent-face/SKILL.md as the portable
+Agent Skill entrypoint. YAML frontmatter uses ONLY the portable/open subset: name: agent-face
+(deliberately NOT "claude"/"anthropic" — those are reserved), a rich description, version 0.1.0,
+license: MIT, and harness-specific keys tucked under metadata (brand "Claude Faces", category,
+package-manager npm). The description states WHAT (gives an AI agent a talking, animated,
+lip-syncing voice face, run on localhost / deploy to Vercel / self-host next to your agent),
+WHEN ("USE WHEN the user wants to give their agent a face, talk to their agent by voice and
+watch it lip-sync, or deploy a voice face UI"), and the explicit trigger phrases "give my agent
+a face", "talk to my agent by voice", "deploy a face UI", "lip-sync face", "voice face for my
+agent", and "put a face on Hermes/openclaw" — plus the two-brain hook (fresh hosted API OR your
+own running agent). Kept SKILL.md a THIN ROUTER (192 lines, well under the 500 cap): short
+Overview, a "When to use" section (incl. do-NOT-use cases pointing at evaluations.md), the two
+brain modes (A fresh API / B bring-your-own running agent) pointing at references/backends.md, a
+numbered operating flow (check-env -> pick brain -> localhost-or-deploy -> dev/deploy scripts;
+the exact question wording is refined by the later "Wire the operating flow" task), a Scripts
+table (scaffold/dev/check-env/deploy), a Portability section (harness-agnostic node/bash only,
+works on Claude Code/Hermes/openclaw/trustclaw/nanoclaw), a progressive-disclosure References
+table linking references/*.md (backends/architecture/deploy/portability/evaluations — those files
+land in their own later tasks), and an all-optional server-side-only env-var table consistent with
+docs/env-contract.md + .env.example. No runtime surface, so no TDD test (docs/skill task). Verify
+(both headless, both pass): `wc -l skill/agent-face/SKILL.md` = 192 (<= 500); the frontmatter
+name: line greps clean of claude/anthropic; the description contains the "USE WHEN" clause and all
+five+ trigger phrases. Flipped this task's passes -> true.
