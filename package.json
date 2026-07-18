@@ -15,7 +15,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
-    "test:ui": "vitest --ui"
+    "test:ui": "vitest --ui",
+    "test:skill": "node skill/agent-face/scripts/test/smoke.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.112.3",

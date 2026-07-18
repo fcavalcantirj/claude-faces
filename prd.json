@@ -875,7 +875,7 @@
       "Add an npm script test:skill at repo root that runs the smoke runner; clean up all temp dirs.",
       "Verify: npm run test:skill exits 0 with all assertions passing and temp dirs removed."
     ],
-    "passes": false,
+    "passes": true,
     "headless_verifiable": true
   },
   {

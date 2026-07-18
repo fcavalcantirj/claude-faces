@@ -1836,3 +1836,34 @@ flap on a fixed rhythm while audio is silent. This eval proves the analyser enve
 and non-flat and that the mouth rests closed, but the full correlation (mouth displacement
 tracking TTS volume through the live orchestrator) needs a brain + TTS key and a human
 watching the face, which no headless assertion can stand in for.
+
+---
+2026-07-18 — Task: Add the skill script smoke tests runner (infra, headless_verifiable:true)
+
+Added skill/agent-face/scripts/test/smoke.mjs — a dependency-free (no test framework)
+Node ESM runner that exercises the SAFE paths of every skill script, plus a root
+package.json "test:skill" script that runs it. Territory-scoped: only touched
+skill/agent-face/scripts/** and the one new package.json script key.
+
+Coverage (27 assertions):
+- scaffold.mjs: copies template into a fresh temp dir (package.json, app/, vercel.json
+  present; node_modules skipped); re-scaffolding the non-empty dir fails without --force
+  and succeeds with --force.
+- check-env.mjs: with a scrubbed env + empty app-dir => non-zero exit, crosses, "no brain";
+  with a fake ANTHROPIC_API_KEY => exit 0 + Anthropic selected. Asserts the secret VALUE is
+  never echoed in either text or --json output.
+- dev.mjs kill logic in isolation: a throwaway listener held by a SEPARATE node process on a
+  real free port is terminated by `dev --kill-only --port <port>` (no real `next dev`); asserts
+  the port is freed and the prior listener process exits (waits on its 'exit' event, not a
+  synchronous exitCode sample). Depends on lsof, which is present here.
+- deploy.mjs preflight: a temp dir with a bare package.json but missing app files fails fast
+  ("Preflight failed"); against a complete scaffolded app with the vercel CLI forced absent
+  (VERCEL_BIN override to a bogus binary) it takes the install-hint path ("npm i -g vercel")
+  and exits non-zero with no build/network step. Asserts no secret echoed.
+
+All temp dirs (mkdtemp under os.tmpdir) are removed in a finally block; a final assertion
+confirms none leaked, and any spawned listener child is SIGKILLed on exit.
+
+Verify (RUN, exit code captured directly, not via a pipe/&&): `npm run test:skill` =>
+"27 passed, 0 failed" / "✓ All skill script smoke tests passed." / EXITCODE=0. Post-run check:
+no /tmp/smoke-* dirs left, 0 stray listener processes. Flipped passes -> true.
