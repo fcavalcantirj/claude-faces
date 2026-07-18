@@ -1943,3 +1943,42 @@ NOTE: filed a new task — "Let a newly-configured brain recover without a full 
 for the spec-vs-implementation gap found while writing the degradation eval (config is fetched
 once on mount; the banner says to reload). Not silently coded around; it is a product decision
 for Felipe.
+
+2026-07-18: [infra] Add GitHub Actions CI — DONE.
+.github/workflows/ci.yml, three jobs on push + pull_request, with concurrency cancel-in-progress
+so a superseded commit stops burning runners. Node comes from .nvmrc (node-version-file) rather
+than a hardcoded 22, so the pin lives in ONE place. build job: npm ci (not install — a drifted
+lockfile must fail, not silently resolve), typecheck, unit tests, build. skill job: frontmatter
+portability, SKILL.md <=500 lines, app-template parity, harness-coupling grep, test:skill,
+prd.json schema validation. e2e job: playwright with chromium, uploading the HTML report as an
+artifact on failure.
+TWO DELIBERATE ADDITIONS beyond the task's step list, both flagged rather than smuggled: (1)
+`npm test` — the steps list npm ci/typecheck/build but NOT the 429-test suite; a CI that builds
+without running the tests is a rubber stamp, which is the exact failure mode this project has
+been fighting. (2) the e2e job — these are the tests that caught the hydration crash and proved
+the fake mic carries real audio. Also set NODE_ENV: production explicitly on the build step:
+belt-and-braces against exactly the ambient-env footgun that cost us a day.
+EVERY GATE WAS PROVEN TO FAIL BEFORE BEING WIRED IN. A CI step that always exits 0 is worse
+than no step, so none went in on trust: template parity — desynced app/globals.css on purpose,
+confirmed --check goes non-zero, restored; skill name — built a claude-named copy of SKILL.md,
+confirmed exit 1; description — built a copy with an emptied description block, confirmed exit
+1. That is task step 9 ("introducing a claude-named SKILL.md or an out-of-sync template makes
+CI fail as designed") genuinely demonstrated, not asserted.
+FOUND AND FIXED A VACUOUS GATE OF MY OWN: I first wrote the frontmatter check in awk as
+`awk -F': *' '/^description:/ {print $2}'`. SKILL.md uses a YAML FOLDED SCALAR (`description:
+>-`) whose text lives on the following indented lines, so awk extracted exactly ">-" — 2 chars
+— and the "description is non-empty" assertion would have passed on a COMPLETELY EMPTY
+description. Rewrote it as a real frontmatter parser in node that follows the folded block and
+requires >=50 chars; it now reads the true 713-char description. A gate that cannot fail is
+theatre, and I nearly shipped one.
+ALSO REPAIRED INBOUND DRIFT: dasbrow's #55 (acc14ca) added test:skill to the ROOT package.json
+without re-running sync-template.mjs, so main landed with the app-template out of sync and the
+parity check failing. Ran the sync (77 files, 1 updated); parity green. Flagged in the room —
+this is precisely what the CI parity step now enforces automatically.
+Verify (all RUN locally, $? captured directly): YAML parses, 3 jobs / 21 steps; typecheck 0;
+npm test 0 429/429; build 0; test:skill 0 (27 skill assertions); parity 0. Flipped passes -> true.
+UAT: confirm the workflow actually goes green on GitHub Actions for a real push — local command
+equivalence is strong evidence but is NOT the same as a clean ubuntu-latest runner doing
+npm ci + `npx playwright install --with-deps chromium` from scratch. Watch the first run and
+check the e2e job in particular, since headless chromium on a runner (no GPU) may behave
+differently from this Mac for the WebGL/canvas assertions.

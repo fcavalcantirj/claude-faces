@@ -892,7 +892,7 @@
       "Verify: the workflow passes on a clean checkout.",
       "Verify: introducing a claude-named SKILL.md name or an out-of-sync template makes CI fail as designed (manual check)."
     ],
-    "passes": false,
+    "passes": true,
     "headless_verifiable": false
   },
   {

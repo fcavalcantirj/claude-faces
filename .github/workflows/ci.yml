@@ -1,0 +1,178 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+# A second push to the same branch cancels the first — no point burning runners
+# on a commit that is already superseded.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: typecheck · test · build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      # `npm ci` (not install) so the lockfile is authoritative — a drifted lock
+      # fails here rather than silently resolving to different versions.
+      - name: Install
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      # NOTE: the unit suite is not listed in the task's steps, but a CI that
+      # builds without running 429 tests would be a rubber stamp. Included
+      # deliberately.
+      - name: Unit tests
+        run: npm test
+
+      - name: Build
+        run: npm run build
+        env:
+          # Belt and braces: `next build` REQUIRES production. A runner (or a
+          # developer shell) exporting NODE_ENV=development makes React load its
+          # dev build for part of the SSR graph and prod for the rest, nulling
+          # the dispatcher — prerendering then dies with
+          # "Cannot read properties of null (reading 'useContext')".
+          # This cost us a day; see references/troubleshooting.md.
+          NODE_ENV: production
+
+  skill:
+    name: skill integrity
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      # `name:` must not contain 'claude' or 'anthropic' — those are reserved for
+      # first-party skills and a violation makes the skill unloadable.
+      # Parsed in node, NOT awk: `description:` is a YAML folded scalar (`>-`)
+      # whose text lives on the following indented lines. An awk one-liner
+      # extracts ">-" and would pass even on a completely empty description —
+      # a vacuous gate. This reads the real block.
+      - name: Skill frontmatter is portable
+        run: |
+          node -e '
+            const fs = require("fs");
+            const src = fs.readFileSync("skill/agent-face/SKILL.md", "utf8");
+            const m = src.match(/^---\r?\n([\s\S]*?)\r?\n---/);
+            if (!m) { console.error("::error::SKILL.md has no frontmatter block"); process.exit(1); }
+            const fm = m[1].split(/\r?\n/);
+
+            const name = (fm.find(l => /^name:/.test(l)) || "").replace(/^name:\s*/, "").trim();
+            if (!name) { console.error("::error::SKILL.md has no name"); process.exit(1); }
+            if (/claude|anthropic/i.test(name)) {
+              console.error(`::error::SKILL.md name "${name}" contains a reserved word (claude/anthropic)`);
+              process.exit(1);
+            }
+
+            const i = fm.findIndex(l => /^description:/.test(l));
+            if (i === -1) { console.error("::error::SKILL.md has no description"); process.exit(1); }
+            let desc = fm[i].replace(/^description:\s*/, "").trim();
+            if (/^[>|]/.test(desc)) {
+              desc = "";
+              for (let j = i + 1; j < fm.length && /^\s+\S/.test(fm[j]); j++) desc += " " + fm[j].trim();
+            }
+            desc = desc.trim();
+            if (desc.length < 50) {
+              console.error(`::error::SKILL.md description is too short (${desc.length} chars)`);
+              process.exit(1);
+            }
+            console.log(`name=${name}  description=${desc.length} chars — OK`);
+          '
+
+      # SKILL.md must stay navigable; the project caps it at 500 lines.
+      - name: SKILL.md stays under 500 lines
+        run: |
+          set -euo pipefail
+          LINES=$(wc -l < skill/agent-face/SKILL.md)
+          echo "SKILL.md = $LINES lines"
+          if [ "$LINES" -gt 500 ]; then echo "::error::SKILL.md is $LINES lines (max 500)"; exit 1; fi
+
+      # The vendored app-template must match the repo-root app, or `scaffold`
+      # ships a stale copy. Verified to exit non-zero on real drift.
+      - name: App template parity
+        run: node skill/agent-face/scripts/sync-template.mjs --check
+
+      # The skill must run under ANY harness with plain node — no MCP client, no
+      # Claude-specific tooling. Provider-domain mentions (ANTHROPIC_API_KEY,
+      # claude-* model ids) are legitimate and deliberately NOT matched here.
+      - name: No harness coupling in skill scripts
+        run: |
+          set -euo pipefail
+          if grep -rniE 'mcp|allowed-tools|tool_use|claude-code-sdk|@anthropic-ai/sdk' \
+               skill/agent-face/scripts; then
+            echo "::error::skill scripts are coupled to a specific harness"
+            exit 1
+          fi
+          echo "no harness coupling found"
+
+      - name: Skill script smoke tests
+        run: npm run test:skill
+
+      - name: prd.json is a valid JSON array
+        run: |
+          set -euo pipefail
+          node -e '
+            const a = JSON.parse(require("fs").readFileSync("prd.json","utf8"));
+            if (!Array.isArray(a)) { console.error("prd.json is not an array"); process.exit(1); }
+            const bad = a.filter(t =>
+              typeof t.description !== "string" ||
+              !Array.isArray(t.steps) ||
+              typeof t.passes !== "boolean" ||
+              typeof t.headless_verifiable !== "boolean");
+            if (bad.length) {
+              console.error("malformed tasks:", bad.map(t => t.description));
+              process.exit(1);
+            }
+            console.log(`prd.json OK — ${a.length} tasks, ${a.filter(t=>t.passes).length} passing`);
+          '
+
+  e2e:
+    name: browser e2e
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Install chromium
+        run: npx playwright install --with-deps chromium
+
+      # Not in the task's step list either, but these are the tests that caught
+      # the hydration crash and proved the fake mic carries real audio. Skipped
+      # specs (the STT_REAL_MODEL one) stay skipped — it downloads a ~150MB model.
+      - name: Playwright
+        run: npx playwright test
+        env:
+          CI: "true"
+
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 7
