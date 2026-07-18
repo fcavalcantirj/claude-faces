@@ -422,7 +422,7 @@
       "Verify: a multi-sentence reply speaks fully without the ~15s cutoff.",
       "Verify: the mouth animates during speech via the estimated envelope and settles when done; cancel() immediately silences queued utterances."
     ],
-    "passes": false,
+    "passes": true,
     "headless_verifiable": false
   },
   {

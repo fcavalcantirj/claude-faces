@@ -883,3 +883,49 @@ model cached, record a clip in-app and confirm mode 'auto' transcribes it LOCALL
 routes to hosted (HUD shows the hosted provider); (3) with NEITHER a cached model nor a hosted key,
 confirm the UI shows the "download the model or add a key" message and text-to-chat still works;
 (4) confirm a barge-in mid-transcription aborts the browser worker cleanly.
+
+=== 2026-07-18 — Implement Web Speech API TTS with chunking and boundary-driven mouth [frontend] ===
+Added lib/tts/web-speech.ts — the zero-infra voice-out engine wrapping the browser SpeechSynthesis
+API into the same shape the (later) TTS router drives: speak(text), cancel(), and lifecycle
+callbacks (onStart/onEnd/onBoundary/onError/onMouth/onVoicesChanged). Two Web-Speech realities are
+worked around and documented in a load-bearing header comment: (1) the ~15s Chrome truncation bug —
+chunkForSpeech() splits a full reply into ONE utterance PER sentence (finer barge-in granularity,
+each well under the window), each <= MAX_UTTERANCE_CHARS=200; an over-long sentence is split on word
+boundaries (splitLong) and a monster word is hard-split. Sentence splitting REUSES the chat client's
+tested splitSentences (append '\n' to force the final terminator to flush). Utterances are spoken
+ONE AT A TIME — the next chunk is only handed to the synth on the previous utterance's onend — so the
+synth is never over-queued and cancel() stops instantly. (2) SpeechSynthesis exposes no tappable
+AudioNode, so the mouth is driven by a SYNTHETIC envelope: an internal rAF loop calls
+estimateFeatures(activeUtteranceText, now - utteranceStartedAt) (from lib/lipsync) each frame and
+writes {open, viseme} into the shared mouthRef (mouthSource 'estimated') + fires onMouth; onboundary
+word events are forwarded (BoundaryInfo{charIndex,name,utterance}) so the orchestrator can track
+progress. Emotion is left to callbacks per the seam pattern: onStart fires ONCE on the first
+utterance's start (-> orchestrator sets 'speaking') and onEnd fires ONCE after the final utterance's
+onend (-> return to the resting emotion). Barge-in: cancel() bumps an internal generation counter so
+any late onstart/onend/onerror from the cancelled utterance no-ops (never advances the queue or fires
+onEnd), clears the queue, stops the frame loop, silences the mouth, and calls synth.cancel() — but
+ONLY when speech was actually active, so the pre-speak reset speak() does on an idle controller is not
+a spurious cancel. An utterance onerror advances to the next chunk (one bad chunk shouldn't kill the
+reply). voiceschanged is handled: getVoices() is cached from the synth and refreshed on the event
+(firing onVoicesChanged for the settings picker); setVoice(uriOrName) resolves by voiceURI then name
+and is applied to subsequent utterances. isWebSpeechAvailable() gates on both speechSynthesis and
+SpeechSynthesisUtterance. All heavy/browser primitives (synth, createUtterance, now, raf, caf) are
+injectable via WebSpeechDeps so the whole controller is headlessly testable under jsdom with a fake
+synth — no real speech, no rAF. TDD: wrote lib/tts/web-speech.test.ts FIRST (RED — module missing)
+then implemented (GREEN). Verify (all headless, all pass): `npx vitest run lib/tts/web-speech.test.ts`
+10/10 green — chunkForSpeech keeps every chunk <=200 chars / non-empty / lossless and hard-splits a
+399-char punctuation-free sentence on word boundaries (empty in -> []); a 3-sentence reply speaks its
+chunks SEQUENTIALLY (next only after the prior onend) with onStart once + onEnd once + isSpeaking
+tracking; cancel() calls synth.cancel exactly once, sets isSpeaking false, and a late onend does NOT
+advance the queue or fire onEnd; onboundary is forwarded with charIndex/name; an utterance onerror
+still advances to the next chunk; the estimated mouth envelope opens the mouth (volume>0, non-sil
+viseme) mid-utterance and settles to silence (volume 0, viseme_sil, mouthRef.open 0) after end;
+voices populate on voiceschanged and the selected voice is applied. `npm run typecheck` clean; `npm
+test` 279/279 green (25 files); `npm run build` compiles and prerenders / and /_not-found. No
+app-template exists yet (later task), so no sync-template run needed. Flipped this task's passes ->
+true.
+UAT (headless_verifiable:false — needs a browser with SpeechSynthesis + audible playback): (1) speak
+a multi-sentence reply and confirm it speaks FULLY with no ~15s cutoff; (2) confirm the particle
+mouth animates during speech via the estimated envelope (mouthSource 'estimated') and settles when
+done; (3) confirm cancel() immediately silences the queued utterances mid-reply (barge-in); (4) pick
+a different voice in settings and confirm the next reply uses it.
