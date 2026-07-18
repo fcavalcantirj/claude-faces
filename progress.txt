@@ -1983,6 +1983,7 @@ npm ci + `npx playwright install --with-deps chromium` from scratch. Watch the f
 check the e2e job in particular, since headless chromium on a runner (no GPU) may behave
 differently from this Mac for the WebGL/canvas assertions.
 
+<<<<<<< HEAD
 ---
 2026-07-18 — Task: Guard the Eidolon skin against double createRoot on the same container (frontend, headless_verifiable:true) — NOT flipped to passes:true (see UNVERIFIED gate below)
 
@@ -2030,3 +2031,29 @@ UAT: run `PLAYWRIGHT_PORT=3102 npm run test:e2e` after @playwright/test is insta
 confirm the lip-sync spec passes AND the console shows NO "already been passed to
 createRoot" warning; also re-run `npm run typecheck` (expected 0 once playwright deps
 resolve). Then flip prd.json task #60 to passes:true.
+=======
+2026-07-18: [infra] CI — FIRST REAL RUN ATTEMPTED, BLOCKED BY GITHUB BILLING (correction to the
+entry above). I pushed and watched the actual run (id 29656048907) rather than leaving "does it
+go green on Actions" as an untested UAT line. Result: conclusion=failure on ALL THREE jobs,
+each failing 2-3 seconds after start with ZERO steps executed. The annotation gives the reason
+verbatim: "The job was not started because your account is locked due to a billing issue."
+So this is NOT a workflow defect. GitHub parsed the YAML and created all three jobs (build /
+skill integrity / browser e2e) correctly — no runner was ever allocated to execute them.
+Actions is enabled on the repo (permissions: enabled=true, allowed_actions=all); the block is
+account-level billing.
+CONSEQUENCE, stated plainly: the workflow is written and EVERY step's command is verified
+locally (typecheck 0, npm test 429/429, build 0, test:skill 0 with 27 assertions, parity 0,
+plus the deliberate failure-injection proofs for the skill-name, description and template-parity
+gates). What remains UNVERIFIED is the thing only a real runner can prove — that a clean
+ubuntu-latest doing `npm ci` and `npx playwright install --with-deps chromium` from scratch goes
+green. I am not claiming that; it is blocked, not done.
+PROCESS NOTE (third time today, and the reason I caught this at all): the background watch
+command reported exit 0 while the run had FAILED — the 0 came from a trailing `gh run view`,
+not from `gh run watch --exit-status`. Had I trusted the exit code I would have recorded "CI
+green" in this journal, which would have been exactly the false-green this whole project has
+been fighting. Read the output, every time.
+UAT (supersedes the CI UAT line above): resolve the GitHub billing lock on the fcavalcantirj
+account, then re-run the workflow (`gh run rerun 29656048907` or push any commit) and confirm
+all three jobs go green — paying particular attention to the e2e job, since headless chromium
+on a GPU-less runner may behave differently from this Mac for the WebGL/canvas assertions.
+>>>>>>> ea7f1d6 (Record CI first-run result: blocked by GitHub account billing lock)
