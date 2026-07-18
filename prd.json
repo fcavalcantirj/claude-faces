@@ -844,7 +844,7 @@
       "Verify: all phase-to-emotion mappings pass; directive override and text stripping behave correctly.",
       "Verify: the HUD reflects the expected sequence during a mocked turn."
     ],
-    "passes": false,
+    "passes": true,
     "headless_verifiable": true
   },
   {

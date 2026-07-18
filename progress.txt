@@ -1867,3 +1867,31 @@ confirms none leaked, and any spawned listener child is SIGKILLed on exit.
 Verify (RUN, exit code captured directly, not via a pipe/&&): `npm run test:skill` =>
 "27 passed, 0 failed" / "✓ All skill script smoke tests passed." / EXITCODE=0. Post-run check:
 no /tmp/smoke-* dirs left, 0 stray listener processes. Flipped passes -> true.
+2026-07-18: [frontend] Eval: emotion transitions across the conversation lifecycle — DONE.
+Audited first: lib/face/emotion-machine.test.ts already covers steps 2/3/4/6 thoroughly —
+nextEmotion() phase mapping, [[face:x]] parsing and stripping (including mid-text tokens),
+keyword-sentiment fallback, transient/blink metadata, and transient decay under fake timers.
+Rewriting those would be duplication. The genuine gap was step 5: whether those transitions
+actually REACH THE SCREEN during a real turn. tests/e2e/emotion.spec.ts (3 tests, real
+chromium) covers exactly that, driving a full turn with BOTH network seams mocked via
+page.route — /api/config reporting one configured brain so chat is enabled, and /api/chat
+answering with a scripted SSE stream (delta frames + done) behind a deliberate ~700ms lead-in
+so the HUD has time to paint 'thinking' before the first token flips it. No keys, no provider,
+no spend. Test 1 polls the HUD STATE readout (dt:has-text("STATE") + dd) into an ordered list
+of distinct states and asserts it starts NEUTRAL, reaches THINKING, and does NOT stall there
+(THINKING is not the last state seen) — an ordered sequence rather than a racy point-in-time
+read. Test 2 asserts a [[face:happy]] directive drives the HUD to HAPPY. Test 3 asserts the
+rendered FACE turn contains the reply but never the raw '[[face:' token.
+CORRECTED A WRONG ASSERTION OF MY OWN (worth recording, because I nearly filed it as an app
+bug): I first asserted HAPPY must DECAY away after TRANSIENT_HOLD_MS, and it did not — HAPPY
+held past 20s. The app is RIGHT and my test was WRONG. A directive sets the RESTING emotion
+(restingEmotionForReply returns the directive emotion), so happy IS the destination and has
+nothing to decay to. TRANSIENT_EMOTIONS only governs a transient set by a LIFECYCLE PHASE
+settling back onto the resting emotion — exactly what the existing unit test shows, where a
+transient happy decays onto a resting 'love'. Transient decay is covered there with fake
+timers, which is the correct place for it; the e2e now asserts HAPPY PERSISTS past 4s
+(comfortably beyond the 2200ms hold) and the reasoning is documented inline so nobody
+"fixes" the app to match a bad test later.
+Verify (all RUN, exit codes captured directly): typecheck EXIT=0; npm test EXIT=0 429/429
+across 37 files; full `npx playwright test` EXIT=0 with 10 passed + 1 skipped (up from 7+1).
+Flipped passes -> true. hv:true so no UAT line is owed — every step was genuinely verified.
