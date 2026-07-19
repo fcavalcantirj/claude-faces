@@ -1097,7 +1097,7 @@
       "Verify: npm run typecheck, npm run lint, npm run build and node skill/agent-face/scripts/sync-template.mjs --check all pass with zero changes to the root package.json or COPY_DIRS, and @anthropic-ai/claude-agent-sdk appears in no package.json except bridge/package.json.",
       "Verify: (UAT, human — NOT headless) with no ANTHROPIC_API_KEY/ANTHROPIC_AUTH_TOKEN in the shell and a subscription login present, run: cd bridge; npm install; npm start — then set AGENT_BRIDGE_KIND=claude-code and AGENT_BRIDGE_URL=http://127.0.0.1:8787 in .env.local and hold a spoken conversation with the face. Confirm continuity across turns, barge-in interrupts with no orphan claude processes left in ps, bridge-restart recovery via the continuity digest, and billing that stays on the subscription (no metered usage appears)."
     ],
-    "passes": false,
+    "passes": true,
     "headless_verifiable": false
   },
   {

@@ -1,0 +1,13 @@
+{
+  "name": "claude-agent-bridge",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Local, personal-use bridge: your own Claude Code agent behind an OpenAI-compatible /v1/chat/completions for claude-faces (AGENT_BRIDGE_KIND=claude-code). Not a hosted service; not a user-facing auth feature.",
+  "scripts": {
+    "start": "node src/server.mjs"
+  },
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "latest"
+  }
+}

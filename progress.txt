@@ -2424,3 +2424,42 @@ NOT in COPY_DIRS). headless_verifiable: false — the final proof needs a human 
 subscription login actually talking to the face.
 Verify (RUN, $? captured directly): npx vitest run tests/prd-integrity.test.ts EXIT=0 (7/7 —
 shape, 5 keys, category, Verify: lines, unique description all hold with the new task).
+
+2026-07-19: [infra] Local Claude Agent SDK bridge (bridge/) exposing an OpenAI-compatible
+/v1/chat/completions for the claude-code agent-bridge kind — DONE (headless scope; live talk is
+UAT). TDD: 7 test files written FIRST (RED: 7/7 fail on missing modules), then 10 source files
+(GREEN: 61/61). New top-level bridge/ with its OWN package.json — the SDK appears in no
+package.json except bridge/package.json (grep-verified), is NOT in COPY_DIRS (template parity
+green with zero template changes), and is now in tests/client-boundary.test.ts FORBIDDEN (the
+existing @anthropic-ai/sdk entry does NOT match it under endsWith — checked, added explicitly).
+WHAT IT IS: your own Claude Code agent behind POST /v1/chat/completions (SSE), 127.0.0.1:8787,
+subscription login only. Fail-closed guard ported from hermes: refuses to start while
+ANTHROPIC_API_KEY/ANTHROPIC_AUTH_TOKEN is exported (CLI silently prefers keys -> metered
+billing); escape hatch CLAUDE_BRIDGE_ALLOW_API_KEY=1. Session model: send ONLY latest user msg,
+resume via captured session id; new-conversation detection (no assistant turns); stale resume ->
+retire + ONE fresh retry with bounded continuity digest. TEXT ONLY projection (the
+ServerToolUseBlock dangling-tool_call_id trap is pinned by a ported hermes test); subagent
+deltas (parent_tool_use_id) dropped; 30s SSE keepalive comments; client disconnect -> abort ->
+SDK query interrupted. Teardown: handle assigned BEFORE any await; dispose() on every exit path;
+dispose deliberately does NOT await generator.return() — an async generator blocked on a pending
+await settles return() only after that await resolves (never, for a hung turn); the
+AbortController is the authoritative kill.
+ROUND-TRIP PROOF: bridge/test/roundtrip.test.ts drives the REAL lib/providers/agent-bridge
+adapter (AGENT_BRIDGE_KIND=claude-code) over REAL HTTP against the real server with only the SDK
+scripted — writer and parser proven to agree; also 401 wrong-bearer, 429 turn-lock, barge-in
+lock release, stream:false aggregation, 400, 404.
+GATES CAN FAIL, PROVEN: 3 failure injections each flipped the right suite red (subagent filter
+removed -> projector fails; auth guard inverted -> env fails; interrupt dropped from dispose ->
+session fails); restored -> 61/61 green.
+Typecheck lesson: tsc infers .mjs signatures for TS consumers even without checkJs, and Next's
+next-env.d.ts makes ProcessEnv require NODE_ENV — four JSDoc annotations now pin the public
+signatures (destructured params with = {} defaults otherwise infer only the DEFAULTED keys).
+Verify (all RUN, $? captured directly): RED npx vitest run bridge/test EXIT=1 (7 fail, no src);
+GREEN EXIT=0 61/61; npm run verify EXIT=0 ALL 6 GATES (515 unit tests incl. bridge);
+grep @anthropic-ai/claude-agent-sdk in package.json files -> bridge/package.json ONLY.
+UAT: [infra] Agent SDK bridge LIVE: with a subscription login and no ANTHROPIC_* key exported,
+cd bridge && npm install && npm start; wire AGENT_BRIDGE_KIND=claude-code +
+AGENT_BRIDGE_URL=http://127.0.0.1:8787 in .env.local; hold a spoken conversation; confirm
+continuity across turns, barge-in leaves no orphan claude processes (ps), bridge restart
+recovers via continuity digest, and NO metered usage appears on the billing page. Also confirm
+the projector's duck-typed SDK message shapes against the actually-installed SDK version.

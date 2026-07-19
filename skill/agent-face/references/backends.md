@@ -121,6 +121,29 @@ Every key is optional; no missing key hard-fails the UI.
 The bridge reuses the agent's own memory/tools — you are not resending a system
 prompt for a stateful agent, you are talking to the agent you already run.
 
+### `claude-code`: the local Agent SDK bridge
+
+The claude-faces repo ships a ready-made local bridge for this kind at
+`bridge/` (repo root, NOT part of this skill's app template): a small Node
+server that wraps the Claude Agent SDK's `query()` behind
+`/v1/chat/completions`, so the face talks to **your own Claude Code agent on
+your own subscription login**.
+
+```bash
+cd bridge && npm install && npm start        # 127.0.0.1:8787
+# .env.local in the app:
+AGENT_BRIDGE_KIND=claude-code
+AGENT_BRIDGE_URL=http://127.0.0.1:8787
+# optional shared secret (bridge side: CLAUDE_BRIDGE_TOKEN=<same value>):
+# AGENT_BRIDGE_KEY=<value>
+```
+
+It is a LOCAL, personal-use dev tool: Anthropic does not allow offering
+claude.ai login to third parties, so never deploy it as a user-facing feature.
+It refuses to start while `ANTHROPIC_API_KEY`/`ANTHROPIC_AUTH_TOKEN` are
+exported (they would silently switch billing from your subscription to metered
+API usage). Details and caveats: `bridge/README.md`.
+
 ---
 
 ## How to add a provider

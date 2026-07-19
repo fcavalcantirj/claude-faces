@@ -1,0 +1,202 @@
+// The session state machine: one-shot query() per HTTP request, resumed via
+// the session id captured from the SDK's init message. OpenAI clients replay
+// the full history every request; the SDK session persists on the CLI's disk —
+// so the bridge sends ONLY the latest user message and lets `resume` carry the
+// context. Failure discipline (mirrors hermes-agent):
+//
+//   • no assistant turns in the history  → new conversation → fresh session
+//   • assistant turns + stored id        → resume
+//   • assistant turns + NO stored id     → fresh + continuity digest
+//   • a RESUMED attempt that throws      → retire the id, ONE fresh retry + digest
+//   • a FRESH attempt that throws        → no retry; surface the error
+//
+// Teardown discipline: the real SDK owns a Claude Code CLI subprocess that
+// LEAKS if not disposed. The query handle is assigned BEFORE any await (the
+// half-connected lesson), and every exit path — success, thrown error, client
+// abort, timeout — reaches the same dispose(). dispose() must NOT await the
+// generator: an async generator blocked on a pending await settles .return()
+// only after that await resolves, which for a hung turn is never. The
+// AbortController is the authoritative kill; interrupt()/return() are
+// fire-and-forget courtesy.
+
+import { buildContinuityDigest } from "./digest.mjs";
+import { projectMessage } from "./projector.mjs";
+
+export class BridgeAbortError extends Error {
+  constructor() {
+    super("The request was aborted by the client.");
+    this.name = "BridgeAbortError";
+  }
+}
+
+export class BridgeTimeoutError extends Error {
+  constructor(ms) {
+    super(`The agent turn timed out after ${ms}ms; the query was interrupted.`);
+    this.name = "BridgeTimeoutError";
+  }
+}
+
+/**
+ * @param {{
+ *   queryFn: (args: { prompt: string, options: Record<string, unknown> }) => AsyncGenerator<any, any, any>,
+ *   model?: string | null,
+ *   permissionMode?: string,
+ *   cwd?: string | null,
+ *   initTimeoutMs?: number,
+ *   turnTimeoutMs?: number,
+ * }} config
+ */
+export function createSession({
+  queryFn,
+  model = null,
+  permissionMode = "acceptEdits",
+  cwd = null,
+  initTimeoutMs = 60_000,
+  turnTimeoutMs = 600_000,
+}) {
+  let storedSessionId = null;
+
+  async function runAttempt({ prompt, systemText, resumeId, onDelta, signal }) {
+    const abortController = new AbortController();
+    const options = {
+      includePartialMessages: true,
+      permissionMode,
+      systemPrompt: systemText
+        ? { type: "preset", preset: "claude_code", append: systemText }
+        : { type: "preset", preset: "claude_code" },
+      abortController,
+    };
+    if (model) options.model = model;
+    if (cwd) options.cwd = cwd;
+    if (resumeId) options.resume = resumeId;
+
+    // Handle BEFORE any await: a failure during startup must still leave
+    // something dispose() can reap.
+    const q = queryFn({ prompt, options });
+    let disposed = false;
+    const dispose = () => {
+      if (disposed) return;
+      disposed = true;
+      abortController.abort();
+      try {
+        Promise.resolve(q.interrupt?.()).catch(() => {});
+      } catch {
+        /* best-effort */
+      }
+      try {
+        Promise.resolve(q.return?.()).catch(() => {});
+      } catch {
+        /* best-effort */
+      }
+    };
+
+    let onAbort = null;
+    const aborted = new Promise((_, reject) => {
+      if (!signal) return;
+      if (signal.aborted) {
+        reject(new BridgeAbortError());
+        return;
+      }
+      onAbort = () => reject(new BridgeAbortError());
+      signal.addEventListener("abort", onAbort, { once: true });
+    });
+    aborted.catch(() => {}); // may never be consumed by the race
+
+    let sawDelta = false;
+    let lastAssistantText = null;
+    let resultEvent = null;
+    const startedAt = Date.now();
+
+    try {
+      let gotFirst = false;
+      for (;;) {
+        const ceiling = gotFirst ? turnTimeoutMs : Math.min(initTimeoutMs, turnTimeoutMs);
+        const budget = ceiling - (Date.now() - startedAt);
+        if (budget <= 0) throw new BridgeTimeoutError(ceiling);
+        let timer = null;
+        const timeout = new Promise((_, reject) => {
+          timer = setTimeout(() => reject(new BridgeTimeoutError(ceiling)), budget);
+        });
+        const next = q.next();
+        next.catch(() => {}); // it may lose the race; never let it go unhandled
+        let step;
+        try {
+          step = await Promise.race([next, timeout, aborted]);
+        } finally {
+          clearTimeout(timer);
+        }
+        if (step.done) break;
+        gotFirst = true;
+        for (const ev of projectMessage(step.value)) {
+          if (ev.type === "session") storedSessionId = ev.sessionId;
+          else if (ev.type === "delta") {
+            sawDelta = true;
+            onDelta?.(ev.text);
+          } else if (ev.type === "assistant_text") lastAssistantText = ev.text;
+          else if (ev.type === "result") resultEvent = ev;
+        }
+        if (resultEvent) break;
+      }
+    } catch (err) {
+      dispose();
+      throw err;
+    } finally {
+      if (onAbort) signal.removeEventListener("abort", onAbort);
+    }
+    dispose();
+
+    if (!resultEvent) throw new Error("The SDK stream ended without a result message.");
+    const text = resultEvent.text ?? lastAssistantText ?? "";
+    // Streaming can be unavailable (or filtered); the reply still reaches the
+    // client as one delta rather than silently vanishing.
+    if (!sawDelta && text) onDelta?.(text);
+    return {
+      text,
+      usage: resultEvent.usage,
+      finishReason: resultEvent.finishReason,
+      isError: resultEvent.isError,
+    };
+  }
+
+  return {
+    get sessionId() {
+      return storedSessionId;
+    },
+
+    /**
+     * @param {{
+     *   latestUserText: string,
+     *   systemText?: string,
+     *   hasAssistantTurns?: boolean,
+     *   messages?: Array<{ role: string, content: unknown }>,
+     *   onDelta?: (text: string) => void,
+     *   signal?: AbortSignal,
+     * }} turn
+     */
+    async runTurn({ latestUserText, systemText = "", hasAssistantTurns = false, messages = [], onDelta, signal }) {
+      // A history with no assistant turns is a NEW conversation: whatever
+      // session we were resuming is over.
+      if (!hasAssistantTurns) storedSessionId = null;
+
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        const resumeId = attempt === 0 && hasAssistantTurns ? storedSessionId : null;
+        const needsDigest = hasAssistantTurns && !resumeId;
+        const digest = needsDigest ? buildContinuityDigest(messages) : "";
+        const prompt = digest ? `${digest}\n\n${latestUserText}` : latestUserText;
+        try {
+          return await runAttempt({ prompt, systemText, resumeId, onDelta, signal });
+        } catch (err) {
+          const retryable =
+            Boolean(resumeId) &&
+            attempt === 0 &&
+            !(err instanceof BridgeAbortError) &&
+            !(err instanceof BridgeTimeoutError);
+          if (!retryable) throw err;
+          // Stale resume hard-fails: retire the id, retry ONCE fresh + digest.
+          storedSessionId = null;
+        }
+      }
+      throw new Error("unreachable: both session attempts exhausted");
+    },
+  };
+}

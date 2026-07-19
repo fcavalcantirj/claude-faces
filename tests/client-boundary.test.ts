@@ -27,6 +27,9 @@ const CLIENT_ENTRYPOINTS = ["app/page.tsx", "lib/use-orchestrator.ts", "lib/orch
 /** Modules that must NEVER be reachable from the client. */
 const FORBIDDEN = [
   "@anthropic-ai/sdk",
+  // The Agent SDK (bridge/ dev tool) — a separate entry because the endsWith
+  // check below does NOT subsume it under "@anthropic-ai/sdk".
+  "@anthropic-ai/claude-agent-sdk",
   "lib/providers/anthropic",
   "lib/providers/openrouter",
   "lib/providers/groq",
