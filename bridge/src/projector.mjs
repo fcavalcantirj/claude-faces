@@ -58,8 +58,20 @@ export function projectMessage(message) {
 
     case "assistant": {
       if (fromSubagent) return [];
-      const text = textBlocks(message.message?.content);
-      return text ? [{ type: "assistant_text", text }] : [];
+      const content = message.message?.content;
+      const events = [];
+      // Any tool call — client-side (tool_use) or server-side (server_tool_use)
+      // — means seconds of silent work ahead. Signal it (id-less, so it can
+      // never dangle on replay) so the session can speak an acknowledgment.
+      if (
+        Array.isArray(content) &&
+        content.some((b) => b && (b.type === "tool_use" || b.type === "server_tool_use"))
+      ) {
+        events.push({ type: "tool_activity" });
+      }
+      const text = textBlocks(content);
+      if (text) events.push({ type: "assistant_text", text });
+      return events;
     }
 
     case "result": {

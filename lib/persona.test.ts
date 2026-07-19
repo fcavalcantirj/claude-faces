@@ -23,6 +23,15 @@ describe('persona', () => {
     expect(DEFAULT_PERSONA_PROMPT).not.toMatch(/hermes|claude|anthropic|openai|gpt/i)
   })
 
+  it('teaches acknowledge-first for tool/multi-step work (no silent gaps in speech)', () => {
+    // A tool-using brain (agent bridge) can work for many seconds before its
+    // first token. The persona must ask for a short spoken acknowledgment
+    // BEFORE the work starts, so the face is never silently "stuck" (live
+    // finding, 2026-07-19: it built the HTML fine but said nothing until done).
+    expect(DEFAULT_PERSONA_PROMPT.toLowerCase()).toContain('acknowledg')
+    expect(DEFAULT_PERSONA_PROMPT.toLowerCase()).toMatch(/then do the work/i)
+  })
+
   it('exposes the emotion vocabulary as a joined list', () => {
     expect(PERSONA_EMOTION_LIST).toBe(EMOTIONS.join(', '))
   })

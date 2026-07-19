@@ -2661,3 +2661,21 @@ Verify (RUN, $? captured directly): startup log shows "permission mode: bypassPe
 LIVE through the bridge, the agent CREATED /tmp/face-yolo-test.html and RAN cat on it — and I
 verified the file's existence and content ON DISK independently of the agent's claim (FACE WAS
 HERE; FILE_CHECK_EXIT=0). Bridge unit tests still 61/61.
+
+2026-07-19: [backend] Spoken acknowledgment before tool work — Felipe's live finding: he asked
+for an HTML build, the agent worked in silence and only spoke AFTER finishing; a talking face
+that goes mute reads as broken. Two layers: (1) persona (lib/persona.ts) now instructs
+acknowledge-first for tool/multi-step work — helpful but PROVEN unreliable live (timed SSE:
+first delta +9.4s and it was already the final answer); (2) DETERMINISTIC bridge-side ack —
+projector emits an id-less {type:'tool_activity'} for assistant messages carrying
+tool_use/server_tool_use (the ServerToolUseBlock PIN updated with intent preserved: still zero
+tool_calls, zero ids on the wire), and the session speaks ONE short varied ack phrase when tool
+work starts before any agent text (turn-scoped flag — a digest retry cannot double-ack; an
+agent that already spoke suppresses it; the ack never pollutes the non-streaming result text).
+Verify (all RUN, $? captured directly): TDD RED (2 fail) -> GREEN bridge 64/64; npm test EXIT=0;
+eslint/typecheck EXIT=0; sync-template run; npm run verify EXIT=0 (6/6); LIVE timed SSE through
+the app route: +4.5s "Got it — on it. " (the moment the first tool call was issued), +7.4s the
+real answer, file content verified on disk. Before the fix the same request was silent until
++9.4s.
+UAT: [backend] Felipe: ask for a build by voice — you should HEAR the ack while it works, then
+the answer.

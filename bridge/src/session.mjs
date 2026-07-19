@@ -36,6 +36,16 @@ export class BridgeTimeoutError extends Error {
   }
 }
 
+/** Spoken when the agent starts tool work without having said anything yet —
+ * a tool-using turn can be silent for many seconds, and a talking face that
+ * goes mute reads as broken (live finding, 2026-07-19). */
+const DEFAULT_ACK_PHRASES = [
+  "Got it — on it.",
+  "On it — one moment.",
+  "Okay, working on that now.",
+  "Give me a second — doing it now.",
+];
+
 /**
  * @param {{
  *   queryFn: (args: { prompt: string, options: Record<string, unknown> }) => AsyncGenerator<any, any, any>,
@@ -44,6 +54,7 @@ export class BridgeTimeoutError extends Error {
  *   cwd?: string | null,
  *   initTimeoutMs?: number,
  *   turnTimeoutMs?: number,
+ *   ackPhrases?: string[],
  * }} config
  */
 export function createSession({
@@ -53,10 +64,11 @@ export function createSession({
   cwd = null,
   initTimeoutMs = 60_000,
   turnTimeoutMs = 600_000,
+  ackPhrases = DEFAULT_ACK_PHRASES,
 }) {
   let storedSessionId = null;
 
-  async function runAttempt({ prompt, systemText, resumeId, onDelta, signal }) {
+  async function runAttempt({ prompt, systemText, resumeId, onDelta, signal, turnState }) {
     const abortController = new AbortController();
     const options = {
       includePartialMessages: true,
@@ -132,6 +144,15 @@ export function createSession({
           else if (ev.type === "delta") {
             sawDelta = true;
             onDelta?.(ev.text);
+          } else if (ev.type === "tool_activity") {
+            // Silent tool work ahead: speak ONE short acknowledgment — unless
+            // the agent already said something itself (turn-scoped, so a
+            // digest retry can never double-ack).
+            if (!sawDelta && turnState && !turnState.ackSent) {
+              turnState.ackSent = true;
+              const phrase = ackPhrases[Math.floor(Math.random() * ackPhrases.length)];
+              onDelta?.(`${phrase} `);
+            }
           } else if (ev.type === "assistant_text") lastAssistantText = ev.text;
           else if (ev.type === "result") resultEvent = ev;
         }
@@ -178,13 +199,14 @@ export function createSession({
       // session we were resuming is over.
       if (!hasAssistantTurns) storedSessionId = null;
 
+      const turnState = { ackSent: false };
       for (let attempt = 0; attempt < 2; attempt += 1) {
         const resumeId = attempt === 0 && hasAssistantTurns ? storedSessionId : null;
         const needsDigest = hasAssistantTurns && !resumeId;
         const digest = needsDigest ? buildContinuityDigest(messages) : "";
         const prompt = digest ? `${digest}\n\n${latestUserText}` : latestUserText;
         try {
-          return await runAttempt({ prompt, systemText, resumeId, onDelta, signal });
+          return await runAttempt({ prompt, systemText, resumeId, onDelta, signal, turnState });
         } catch (err) {
           const retryable =
             Boolean(resumeId) &&

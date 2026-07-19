@@ -52,7 +52,36 @@ describe("projectMessage", () => {
     expect(events).toEqual([{ type: "assistant_text", text: "found it" }]);
   });
 
-  it("PIN: an assistant message with a server tool use emits text only — never tool_calls", () => {
+  it("signals tool activity (client AND server tools) so the face can acknowledge", () => {
+    const clientTool = projectMessage({
+      type: "assistant",
+      message: { content: [{ type: "tool_use", id: "t-1", name: "Write", input: {} }] },
+    });
+    expect(clientTool).toEqual([{ type: "tool_activity" }]);
+
+    const serverTool = projectMessage({
+      type: "assistant",
+      message: {
+        content: [{ type: "server_tool_use", id: "srv-1", name: "web_search", input: {} }],
+      },
+    });
+    expect(serverTool).toEqual([{ type: "tool_activity" }]);
+
+    // Tool use + text in one message: both events, text still clean of tool_calls.
+    const mixed = projectMessage({
+      type: "assistant",
+      message: {
+        content: [
+          { type: "tool_use", id: "t-2", name: "Bash", input: {} },
+          { type: "text", text: "working" },
+        ],
+      },
+    });
+    expect(mixed).toEqual([{ type: "tool_activity" }, { type: "assistant_text", text: "working" }]);
+    expect(JSON.stringify(mixed)).not.toContain("tool_calls");
+  });
+
+  it("PIN: an assistant message with a server tool use NEVER emits tool_calls or ids", () => {
     const events = projectMessage({
       type: "assistant",
       message: {
@@ -63,7 +92,12 @@ describe("projectMessage", () => {
         ],
       },
     });
-    expect(events).toEqual([{ type: "assistant_text", text: "found it" }]);
+    // tool_activity is an id-less signal (drives the spoken ack); the text is
+    // still projected clean. No OpenAI tool_calls, no dangling tool ids, ever.
+    expect(events).toEqual([
+      { type: "tool_activity" },
+      { type: "assistant_text", text: "found it" },
+    ]);
     expect(JSON.stringify(events)).not.toContain("tool_calls");
     expect(JSON.stringify(events)).not.toContain("srv-1");
   });

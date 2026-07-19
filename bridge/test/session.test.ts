@@ -189,6 +189,46 @@ describe("createSession.runTurn", () => {
     expect(calls).toHaveLength(1);
   });
 
+  it("tool work before any text → ONE synthetic spoken acknowledgment, then the answer", async () => {
+    // Live finding (2026-07-19): a tool-using turn can be silent for many
+    // seconds. When the agent starts tool work having said nothing, the bridge
+    // itself speaks a short ack so the face is never mute while working.
+    const TOOL_MSG = {
+      type: "assistant",
+      message: { content: [{ type: "tool_use", id: "t-1", name: "Write", input: {} }] },
+    };
+    const { queryFn } = scripted([
+      { messages: [INIT("s"), TOOL_MSG, TOOL_MSG, RESULT("s", "file created")] },
+    ]);
+    const s = createSession({ queryFn, ackPhrases: ["ACK."] });
+    const deltas: string[] = [];
+    const out = await s.runTurn({ ...baseTurn, onDelta: (t: string) => deltas.push(t) });
+    // Exactly one ack (not one per tool call), then the fallback answer text.
+    expect(deltas).toEqual(["ACK. ", "file created"]);
+    expect(out.text).toBe("file created"); // the ack never pollutes the result text
+  });
+
+  it("no synthetic ack when the agent already spoke before its tool work", async () => {
+    const { queryFn } = scripted([
+      {
+        messages: [
+          INIT("s"),
+          DELTA("On it!"),
+          {
+            type: "assistant",
+            message: { content: [{ type: "tool_use", id: "t-1", name: "Write", input: {} }] },
+          },
+          RESULT("s", "done"),
+        ],
+      },
+    ]);
+    const s = createSession({ queryFn, ackPhrases: ["ACK."] });
+    const deltas: string[] = [];
+    await s.runTurn({ ...baseTurn, onDelta: (t: string) => deltas.push(t) });
+    expect(deltas[0]).toBe("On it!");
+    expect(deltas).not.toContain("ACK. ");
+  });
+
   it("no stream deltas → the result text is delivered as one fallback delta", async () => {
     const { queryFn } = scripted([{ messages: [INIT("s"), RESULT("s", "full reply")] }]);
     const s = createSession({ queryFn });
