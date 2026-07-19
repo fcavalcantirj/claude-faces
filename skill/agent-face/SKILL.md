@@ -36,27 +36,36 @@ lip-sync (`wawa-lipsync`).
 
 ## One command (quickstart)
 
-Prerequisites: Node 20+ and npm. Then, from the directory that holds the app
-(the claude-faces repo root, or a freshly scaffolded app):
+Prerequisites: Node 20+ and npm, plus this repo
+(`git clone https://github.com/fcavalcantirj/claude-faces`) or a previously
+scaffolded app. Then, from the directory that holds the app:
 
 ```bash
-node skill/agent-face/scripts/start.mjs      # options: --port 3100 --yolo --stop
+node skill/agent-face/scripts/start.mjs      # app on :3000, bridge on :8787
 ```
 
 It installs missing dependencies on first run (app AND bridge), frees the
 ports, starts the local **agent bridge** if the checkout ships one (the
 claude-faces repo does, under `bridge/`; the packaged app template
-deliberately does not — see `bridge/README.md` for why), wires `.env.local`,
-starts the dev server, and opens the face in your browser. **No bridge and no
-keys still opens a working face** — voice in/out run entirely in the browser;
-a brain (key or bridge) is only needed for intelligent replies. `--stop`
-tears the whole stack down.
+deliberately does not — see `bridge/README.md` for why), wires `.env.local`
+(append-only — existing lines are never rewritten), starts the dev server,
+and opens the face in your browser. **No bridge and no keys still opens a
+working face** — voice in/out run entirely in the browser; a brain (key or
+bridge) is only needed for intelligent replies.
+
+**"Frees the ports" is forceful:** whatever already listens on the app port
+is SIGTERM/SIGKILLed without asking. If `:3000` is some other project's dev
+server, pass `--port 3100` — on EVERY `start.mjs` / `dev.mjs` run, including
+the scaffolded-app form below. Other flags: `--yolo` runs the bridge in
+`bypassPermissions` (owner's machine, no consent clicks — a misheard
+sentence becomes an agent action), `--no-open` skips the browser, `--stop`
+tears the whole stack down, `--help` lists the rest.
 
 Starting from nothing instead of a checkout? Scaffold first, then start:
 
 ```bash
 node skill/agent-face/scripts/scaffold.mjs ./agent-face-app
-node skill/agent-face/scripts/start.mjs ./agent-face-app
+node skill/agent-face/scripts/start.mjs ./agent-face-app   # same flags: --port etc.
 ```
 
 ---
@@ -90,8 +99,8 @@ mic transcribes (in-browser Whisper — the first "talk" downloads the model, so
 give it a moment), and voice-out speaks via the browser. What zero keys does
 NOT get you is an intelligent *reply* — that needs a brain: one hosted key
 **or** your own running agent. (`check-env.mjs` exiting 1 means "no brain
-yet", not "broken".) Everything runs with **zero keys** (in-browser Whisper
-for speech-to-text,
+yet", not "broken".) Voice in, voice out, and the face all run with **zero
+keys** (in-browser Whisper for speech-to-text,
 the browser Web Speech API for speech-out); adding a key or wiring a running
 agent unlocks hosted models and higher-fidelity FFT lip-sync.
 
@@ -179,15 +188,17 @@ Wait for the answer before running any deploy command.
 
 ### Branch A — localhost
 
-Start the dev server. `dev.mjs` **always frees the dev port first** (SIGTERM
-then SIGKILL any previous server on that port) before spawning `npm run dev`,
-then opens the browser. Let the user press **talk** and speak to the face:
+Start the dev server. **Mode B users run `start.mjs` here instead** — it
+starts the bridge, then delegates to `dev.mjs`; `dev.mjs` alone starts only
+the app. `dev.mjs` **always frees the dev port first** (SIGTERM then SIGKILL
+any previous server on that port) before spawning `npm run dev`, then opens
+the browser. Let the user press **talk** and speak to the face:
 
 ```bash
-node skill/agent-face/scripts/dev.mjs
+node skill/agent-face/scripts/dev.mjs        # --port <n> if :3000 is taken
 ```
 
-The app comes up on <http://localhost:3000>. Have the user press **talk**, say
+The app comes up on <http://localhost:3000> (or your `--port`). Have the user press **talk**, say
 something, and confirm the transcript appears, the reply is spoken, and the face
 morphs / lip-syncs.
 
@@ -232,6 +243,7 @@ All scripts are harness-agnostic Node ESM — plain `node`, no external deps.
 
 | Script | Purpose |
 |---|---|
+| `scripts/start.mjs` | One command: bridge (if present) + dev server + browser; `--stop` tears it down |
 | `scripts/scaffold.mjs` | Copy the app template into a target directory |
 | `scripts/dev.mjs` | Kill any previous server, start dev, open the browser |
 | `scripts/check-env.mjs` | Report which brains / STT / TTS are configured (secrets masked) |
@@ -284,6 +296,7 @@ Load these only when you need the detail:
 | `OPENAI_API_KEY` | Hosted Whisper STT fallback + `gpt-4o-mini-tts` voice-out |
 | `AGENT_BRIDGE_KIND` / `AGENT_BRIDGE_URL` / `AGENT_BRIDGE_KEY` | Wire the face to your running agent (Mode B) |
 | `HERMES_API_BASE_URL` / `HERMES_API_KEY` | Hermes-compatible convenience aliases for Mode B |
+| `ALLOW_AGENT_BRIDGE_IN_PROD` | `1` allows a non-public bridge URL in production (self-host / private network) |
 
 Keys are **never** exposed to the browser (never `NEXT_PUBLIC_*`). Missing keys
 degrade gracefully. Full contract: [`references/backends.md`](references/backends.md).

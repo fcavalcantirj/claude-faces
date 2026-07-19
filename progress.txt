@@ -2775,3 +2775,30 @@ free ports EXIT=0 idempotent; npm test EXIT=0; eslint/typecheck EXIT=0; npm run 
 (6/6 incl. skill smoke + template parity untouched); prd-integrity EXIT=0 (70 tasks).
 UAT: [skill] Felipe: type /agent-faces in any Claude Code session (or run start.mjs --port 3100
 --yolo) — browser opens the face talking to your agent; --stop kills the stack.
+
+2026-07-19: [skill] FRESH-EYES VALIDATION of launcher + skill docs (the handover's explicitly
+UNVERIFIED assembled end-to-end run is now [REAL]). From repo root: start.mjs --port 3100
+--yolo --no-open with ANTHROPIC_AUTH_TOKEN=dummy poisoned into the launcher env — the bridge
+STARTED anyway (scrub proven end-to-end), log line "permission mode: bypassPermissions",
+healthz {"ok":true,"busy":false} EXIT=0, /api/config "agentBridge":{"available":true} EXIT=0,
+ONE live turn app→bridge→Claude Code streamed deltas then done ("Hi there, Felipe — hello!" —
+his real agent), bare re-run http=200 curl EXIT=0. .env.local discipline proven in its OWN
+launcher cycle: seeded AGENT_BRIDGE_URL=http://sentinel.invalid:1 with KIND deleted → sentinel
+byte-intact after run, KIND appended exactly once, no dupes; restored byte-identical (sha256
+match). --stop EXIT=0 every cycle; lsof 3100+8787 EXIT=1 (empty); :3000 (Plant Faces) alive
+and untouched throughout. Playwright screenshot: four-corner layout + particle face confirmed.
+Path B [REAL]: scaffold.mjs EXIT=0 → start.mjs <scratch-dir> ran a real npm install (567
+pkgs/16s), honest no-bridge banner, /api/config agentBridge:false + defaultProvider:null, chat
+POST → 400 {"code":"unavailable"} honest refusal. check-env.mjs EXIT=0. Personal skill
+~/.claude/skills/agent-faces/SKILL.md matches validated reality (3100/yolo/stop + scrub facts).
+COLD READ (me + a BLIND second-reader subagent, lists merged): the port-kill footgun was the
+one dangerous gap — quickstart's "frees the ports" SIGKILLs whatever holds :3000 and the doc
+never stated the default port or warned; plus start.mjs absent from the Scripts table, --yolo
+unexplained, "Everything runs with zero keys" contradicting its own preceding sentence,
+Branch A's dev.mjs leaving Mode B users a face with a dead brain, ALLOW_AGENT_BRIDGE_IN_PROD
+missing from the env table, no clone URL anywhere. ALL SIX FIXED in SKILL.md (302/500 lines).
+REPORTED NOT FIXED (Felipe's call): check-env prints "Selected brain: Agent bridge (null)"
+(cosmetic bug); scaffold next-steps prints a literal `<skill>` placeholder and recommends
+dev.mjs where SKILL.md's from-nothing path says start.mjs; the port-kill-by-default design
+itself (warn-only vs refuse-on-foreign-process).
+Verify (all RUN, $? captured directly): npm run verify EXIT=0 (6/6) after the doc edits.
