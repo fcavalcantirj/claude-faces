@@ -1114,7 +1114,7 @@
       "Verify: node parses prd.json as an array and every element has exactly the five required keys (category, description, steps, passes, headless_verifiable) with a valid category.",
       "Verify: no task has an invalid category and every task has at least one Verify: step."
     ],
-    "passes": false,
+    "passes": true,
     "headless_verifiable": true
   }
 ]

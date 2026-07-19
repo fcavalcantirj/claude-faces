@@ -65,7 +65,12 @@ export default defineConfig({
         // extracted pure logic (e.g. dev.mjs findPidsOnPort) keeps its
         // in-process unit tests; only the file-level percentage is dropped from
         // the ratchet, because it measured the tooling gap, not a testing gap.
-        // (This is why skill/agent-face/scripts/** left the include list.)
+        // EXPLICITLY EXCLUDED (not just absent from include): on Linux the v8
+        // provider still reported the three test-imported scripts when they
+        // merely fell outside the include list, dragging the summary ~6 points
+        // below the macOS number and failing the ratchet in the container.
+        // An exclude entry states the decision unambiguously on every platform.
+        "skill/agent-face/scripts/**",
       ],
       // A RATCHET, not a target. Scope excludes browser-owned view code, hooks
       // and data tables (above), so these numbers measure BUSINESS LOGIC ONLY:

@@ -2509,3 +2509,24 @@ degradation.spec.ts:45); sync-template run before every commit. Flipped passes -
 UAT: [frontend] react-hooks refactor VISUAL pass: blink, glitch static, love-heartbeat, sleepy
 breathing and the speaking mouth at 60fps look unchanged; hands-free -> switch to PTT in
 settings stops listening and does not auto-resume on re-entering hands-free.
+
+2026-07-19: [infra] Finalize the deliverable prd.json at repo root — DONE. 69/69 (100%).
+The finalize checks ran against the full 69-task array: bare JSON array; every element exactly
+{category, description, steps, passes, headless_verifiable}; categories all within the allowed
+set; every task ends with Verify: lines; descriptions unique; order executes top-to-bottom with
+dependencies satisfied; 1 URGENT marker (<= 3).
+ONE LAST CROSS-PLATFORM BUG CAUGHT BY verify:linux BEFORE THE FLIP SHIPPED: the coverage gate
+FAILED in the container (statements 77.09 vs threshold 83) while green on macOS. Root cause:
+the three skill CLI scripts that are IMPORTED by their co-located tests (check-env/deploy/dev
+.mjs) were only ABSENT from the coverage include list — and on Linux the v8 provider reported
+them anyway, dragging the summary ~6 points. Fix: an EXPLICIT exclude entry for
+skill/agent-face/scripts/** stating the decision unambiguously on every platform. macOS numbers
+unchanged (83.67/75.01/83.47/87.51); container now measures the same scope.
+ALSO FOR THE RECORD, the exit-code lesson claimed its FOURTH victim tonight: the background-task
+wrapper reported "exit code 0" for the failing Linux run because the wrapper's last command
+(tail) succeeded — the truth was in the captured VERIFY_LINUX_EXIT=1 line. Capture $? directly
+AND read the output; a wrapper's exit code is not the tool's.
+Verify (all RUN, $? captured directly, THIS tree): npm run verify EXIT=0 (6/6);
+PLAYWRIGHT_PORT=3100 npm run verify -- --e2e EXIT=0 (7/7 incl. 14 playwright tests);
+npm run verify:linux EXIT=0 (ALL 6 GATES in a clean node:22-bookworm container);
+./progress.sh 69/69 (100%). Flipped passes -> true.
