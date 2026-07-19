@@ -61,11 +61,13 @@ export const DEFAULT_FACE_SKIN: FaceSkinId = 'eidolon'
 /**
  * Transcription language. Whisper's per-clip auto-detect misreads accented
  * speech (accented English → Portuguese phonetic soup, seen live 2026-07-19),
- * so the user can pin it. Extend the union as more languages are needed.
+ * so the user can pin it. English is the DEFAULT — auto-detect proved itself
+ * unreliable on short accented clips, and the app speaks English out of the
+ * box; switch (or choose auto) in settings. Extend the union as needed.
  */
 export type SttLanguage = 'auto' | 'en' | 'pt'
 export const STT_LANGUAGES: readonly SttLanguage[] = ['auto', 'en', 'pt']
-export const DEFAULT_STT_LANGUAGE: SttLanguage = 'auto'
+export const DEFAULT_STT_LANGUAGE: SttLanguage = 'en'
 
 /** The hint actually sent to STT: `auto` means "send nothing, let it detect". */
 export function sttLanguageHint(language: SttLanguage): string | undefined {

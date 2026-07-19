@@ -2727,3 +2727,12 @@ PLAYWRIGHT_PORT=3100 playwright EXIT=0 (15 passed — degradation opens the sett
 the new control); sync-template run; npm run verify EXIT=0 (6/6).
 UAT: [frontend] Felipe: settings -> VOICE LANGUAGE -> English; speak English -> clean English
 transcript; flip to Português for PT sessions; Auto remains the default behaviour.
+
+2026-07-19: [frontend] Voice language DEFAULT flipped auto -> ENGLISH (Felipe: "portuguese is
+horrible right now, so english default"). Auto-detect proved unreliable on short accented
+clips and the app speaks English out of the box; auto and Português remain two clicks away in
+settings. NOTE: an existing browser's persisted choice wins over the new default (by design) —
+Felipe flips his own setting once in the drawer.
+Verify (all RUN, $? captured directly): npm test EXIT=0 (default + junk-normalize tests updated
+to 'en'); eslint/typecheck EXIT=0; PLAYWRIGHT_PORT=3100 playwright EXIT=0 (15); sync-template
+run; npm run verify EXIT=0 (6/6).
