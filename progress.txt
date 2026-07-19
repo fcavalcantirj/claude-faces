@@ -2408,3 +2408,19 @@ this path, so there is nothing to spot-check; recording that plainly rather than
 Verify (all RUN, $? captured directly): npm run test:coverage EXIT=0 at thresholds 83/74/83/87;
 failure injection: statements raised to 85 -> EXIT=1 (gate CAN fail), restored to 83 -> EXIT=0;
 npm test EXIT=0 (454 passed). Flipped passes -> true.
+
+2026-07-19: [infra] FILED (not yet built): Local Claude Agent SDK bridge task, inserted before the
+finalize capstone — 69 tasks total. Felipe explicitly chose file+implement this session. The task
+bakes in, so no future agent can un-know them: (1) Anthropic's Agent SDK restriction quoted
+verbatim — subscription login must NEVER ship as a user-facing feature; this is a LOCAL
+personal-use tool, 127.0.0.1, not a Vercel route; (2) the fail-closed guard ported from
+~/dev/hermes-agent — refuse to start when ANTHROPIC_API_KEY/ANTHROPIC_AUTH_TOKEN is set, because
+the CLI silently switches billing from subscription to metered and Felipe's shell exports
+provider keys; (3) the ServerToolUseBlock trap (server-side tool results arrive inside the same
+assistant message; projecting tool_calls creates a dangling tool_call_id that breaks replay) —
+v1 is TEXT ONLY; (4) subprocess teardown incl. the half-connected case; (5) SDK stays out of the
+root package.json / client bundle / skill template (new top-level bridge/ dir, own package.json,
+NOT in COPY_DIRS). headless_verifiable: false — the final proof needs a human with a live
+subscription login actually talking to the face.
+Verify (RUN, $? captured directly): npx vitest run tests/prd-integrity.test.ts EXIT=0 (7/7 —
+shape, 5 keys, category, Verify: lines, unique description all hold with the new task).
