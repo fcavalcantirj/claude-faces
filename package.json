@@ -18,7 +18,8 @@
     "test:ui": "vitest --ui",
     "test:skill": "node skill/agent-face/scripts/test/smoke.mjs",
     "test:coverage": "vitest run --coverage",
-    "verify": "node scripts/verify.mjs"
+    "verify": "node scripts/verify.mjs",
+    "verify:linux": "node scripts/verify-linux.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.112.3",

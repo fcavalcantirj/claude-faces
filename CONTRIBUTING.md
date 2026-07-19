@@ -39,6 +39,7 @@ App scripts (repo root):
 |---|---|
 | **`npm run verify`** | **Run every gate — this is what CI runs. Use it before every PR.** |
 | `npm run verify -- --e2e` | Same, plus the Playwright browser suite (slower) |
+| `npm run verify:linux` | Run the gates in a clean Linux container (needs Docker, no CI account). Catches platform bugs a single OS hides. |
 | `npm run verify -- --list` | Show the gates without running them |
 | `npm run dev` | Start the Next.js dev server on port 3000 |
 | `npm run build` | Production build (`next build`) |
