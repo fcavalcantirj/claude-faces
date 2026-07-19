@@ -29,7 +29,7 @@ function registerFake({ available, models }: FakeOpts): void {
     mode: 'A',
     available: () => available,
     listModels: async () => models,
-    // eslint-disable-next-line require-yield
+     
     async *streamChat() {
       throw new Error('not used')
     },
@@ -80,7 +80,7 @@ describe('GET /api/models', () => {
       mode: 'A',
       available: () => false,
       listModels,
-      // eslint-disable-next-line require-yield
+       
       async *streamChat() {
         throw new Error('not used')
       },

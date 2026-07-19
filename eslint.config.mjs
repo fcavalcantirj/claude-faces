@@ -79,36 +79,12 @@ const config = [
     },
   },
 
-  {
-    // REACT COMPILER RULES — DOWNGRADED TO WARN, DELIBERATELY AND VISIBLY.
-    //
-    // The first lint run ever (2026-07-18) surfaced 24 errors from these rules
-    // across 5 components that are working, shipped and covered by the Playwright
-    // suite: refs read during render (use-orchestrator, face-skin), setState
-    // called synchronously in an effect (settings-panel, use-capabilities),
-    // and render-purity/immutability findings in agent-face.
-    //
-    // They are legitimate signals, NOT false positives, and they should be fixed.
-    // But fixing them means refactoring the render path of five working
-    // components — a real change to runtime behaviour, and a different job from
-    // "make the lint command exist". Blocking on them would have meant either
-    // shipping no lint at all, or rushing a risky refactor to force a green.
-    //
-    // So: warn, not off. Every finding still prints on every run, and the gate
-    // still fails on new unused vars, syntax errors and import violations.
-    // Tracked as its own prd.json task — RESTORE THESE TO "error" as that task
-    // lands, rule by rule. Do not let this block become permanent furniture.
-    // RESTORED so far (2026-07-19): use-memo + exhaustive-deps (lazy useState
-    // in kokoro-status/stt-status; exhaustive-deps now explicitly "error" in
-    // the first-party block above, because upstream only ships "warn");
-    // refs (face-skin → useEffectEvent, use-orchestrator → lazy useState);
-    // purity + immutability (agent-face: sim moved into a ref, created in the
-    // emotion effect; Dust uses a seeded PRNG so its render memo is idempotent).
-    files: ["**/*.ts", "**/*.tsx"],
-    rules: {
-      "react-hooks/set-state-in-effect": "warn",
-    },
-  },
+  // The React Compiler downgrade block that lived here (2026-07-18 → 19) is
+  // GONE, per its own instruction not to become permanent furniture: all 26
+  // react-hooks findings were fixed rule-family by rule-family, and every rule
+  // now runs at its upstream "error" severity (exhaustive-deps is explicitly
+  // pinned to "error" in the first-party block above because upstream ships it
+  // as "warn").
 ];
 
 export default config;

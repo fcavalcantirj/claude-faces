@@ -1041,7 +1041,7 @@
       "Verify: npm test and npx playwright test both stay green — these are behavioural changes to the render path, so a passing lint alone does NOT mean the face still works.",
       "Verify: tests/e2e/degradation.spec.ts still reports zero uncaught page errors (its KNOWN_TRACKED allowlist must stay empty)."
     ],
-    "passes": false,
+    "passes": true,
     "headless_verifiable": true
   },
   {

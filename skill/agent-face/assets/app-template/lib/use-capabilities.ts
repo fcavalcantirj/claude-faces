@@ -11,7 +11,7 @@
 // It NEVER hard-fails: a failed probe falls back to `EMPTY_CONFIG` (chat off,
 // local face on), and the face stays interactive regardless.
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, useSyncExternalStore } from 'react'
 import {
   EMPTY_CONFIG,
   computeFeatureMatrix,
@@ -46,6 +46,20 @@ export interface UseCapabilitiesOptions {
   store?: ConversationStore
 }
 
+// Browser capabilities are STATIC facts about this page load, served through
+// useSyncExternalStore so hydration is safe BY CONSTRUCTION: the server HTML
+// and the hydration render both read the server snapshot (empty scope — all
+// false, exactly what the server rendered), and React re-renders with the
+// client snapshot only after hydration commits. Same two-pass timing as the
+// old setState-in-effect approach, with no divergence window and no cascading
+// render. Snapshots are cached at module scope because useSyncExternalStore
+// requires referentially-stable results (a fresh object per call would loop).
+const noopSubscribe = () => () => {}
+let clientCaps: BrowserCapabilities | undefined
+const getClientCaps = () => (clientCaps ??= detectBrowserCapabilities())
+let serverCaps: BrowserCapabilities | undefined
+const getServerCaps = () => (serverCaps ??= detectBrowserCapabilities({}))
+
 /**
  * Probe capabilities once on mount and reconcile the persisted settings. After
  * the config resolves, any invalid selection (hosted STT with no key, OpenAI
@@ -56,54 +70,38 @@ export function useCapabilities(options: UseCapabilitiesOptions = {}): UseCapabi
   const store = options.store ?? getConversationStore()
 
   // Browser sniffing reads `globalThis`, which is EMPTY on the server but fully
-  // populated in the browser. Computing it during render therefore made the
-  // server HTML and the first client render disagree — React threw "Hydration
-  // failed because the server rendered text didn't match the client" and the
-  // control button visibly flashed "VOICE UNAVAILABLE — TYPE BELOW" before
-  // correcting itself.
-  //
-  // So: start from the SSR-equivalent snapshot (an empty scope — all false, the
-  // exact thing the server rendered) and resolve the real capabilities in an
-  // effect, which runs only AFTER hydration has committed. First client render
-  // now matches the server byte for byte.
-  const [browser, setBrowser] = useState<BrowserCapabilities>(() =>
-    detectBrowserCapabilities({}),
+  // populated in the browser — computing it during render once caused a real
+  // hydration crash. See the note above the module-scope snapshots.
+  const browser = useSyncExternalStore(noopSubscribe, getClientCaps, getServerCaps)
+
+  // DERIVED config/loading: only the PROBED result is state; injection and the
+  // EMPTY_CONFIG fallback resolve in the same render (the old effect mirrored
+  // them into state one render late, a set-state-in-effect cascade).
+  const [probed, setProbed] = useState<AppConfig | null>(null)
+  const canFetch = Boolean(
+    options.fetchImpl ?? (typeof fetch !== 'undefined' ? fetch : undefined),
   )
-
-  useEffect(() => {
-    setBrowser(detectBrowserCapabilities())
-  }, [])
-
-  const [config, setConfig] = useState<AppConfig>(options.config ?? EMPTY_CONFIG)
-  const [loading, setLoading] = useState<boolean>(!options.config)
+  const config = options.config ?? probed ?? EMPTY_CONFIG
+  // SSR-safe: Node has a global fetch, so `canFetch` (hence `loading`) agrees
+  // between the server render and the first client render.
+  const loading = !options.config && canFetch && probed === null
 
   // Load the capability probe once (unless config is injected). A failed fetch
   // degrades to EMPTY_CONFIG (chat off, local face on) — never a thrown UI.
   useEffect(() => {
-    if (options.config) {
-      setConfig(options.config)
-      setLoading(false)
-      return
-    }
+    if (options.config) return
     const doFetch = options.fetchImpl ?? (typeof fetch !== 'undefined' ? fetch : undefined)
-    if (!doFetch) {
-      setLoading(false)
-      return
-    }
+    if (!doFetch) return
     let cancelled = false
-    setLoading(true)
     doFetch('/api/config')
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`config ${r.status}`))))
       .then((data: AppConfig) => {
-        if (!cancelled) setConfig(data)
+        if (!cancelled) setProbed(data)
       })
       .catch(() => {
-        // Keep EMPTY_CONFIG — the app stays a fully-local face and the matrix
-        // explains that chat is off until a brain is reachable.
-        if (!cancelled) setConfig(EMPTY_CONFIG)
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false)
+        // Fall back to EMPTY_CONFIG — the app stays a fully-local face and the
+        // matrix explains that chat is off until a brain is reachable.
+        if (!cancelled) setProbed(EMPTY_CONFIG)
       })
     return () => {
       cancelled = true

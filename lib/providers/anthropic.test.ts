@@ -198,7 +198,7 @@ describe('anthropic adapter — abort & errors', () => {
             const err: any = new Error('invalid x-api-key')
             err.status = 401
             throw err
-            // eslint-disable-next-line no-unreachable
+             
             yield undefined as never
           })()
         },
@@ -217,7 +217,7 @@ describe('anthropic adapter — abort & errors', () => {
           return (async function* () {
             const err = Object.assign(new Error('Request was aborted.'), { name: 'AbortError' })
             throw err
-            // eslint-disable-next-line no-unreachable
+             
             yield undefined as never
           })()
         },

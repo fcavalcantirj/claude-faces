@@ -2463,3 +2463,49 @@ AGENT_BRIDGE_URL=http://127.0.0.1:8787 in .env.local; hold a spoken conversation
 continuity across turns, barge-in leaves no orphan claude processes (ps), bridge restart
 recovers via continuity digest, and NO metered usage appears on the billing page. Also confirm
 the projector's duck-typed SDK message shapes against the actually-installed SDK version.
+
+2026-07-19: [frontend] Fix the React Compiler correctness findings surfaced by the first lint
+run — DONE. All 26 react-hooks findings fixed (the task said 24; the live run also surfaced 2
+exhaustive-deps in kokoro-status/stt-status, fixed with the rest), rule-family by rule-family,
+each family verified and committed separately, and THE ENTIRE DOWNGRADE BLOCK IS DELETED from
+eslint.config.mjs per its own instruction. Every react-hooks rule now runs at error; lint is 0
+errors 0 warnings repo-wide (the 4 stale unused-disable directives in test files went too).
+THE FIXES: (1) use-memo/exhaustive-deps — kokoro-status + stt-status controllers moved from
+useMemo(factory,[]) to lazy useState(factory), which is create-exactly-once BY CONTRACT (React
+may drop a useMemo cache mid-life); exhaustive-deps pinned explicitly to error since upstream
+ships warn. (2) refs — face-skin's render-time onReadyRef write replaced with React 19
+useEffectEvent (latest onReady, no remount dep); use-orchestrator's lazy-ref rig replaced with
+lazy useState — the rig is READ DURING RENDER by useSyncExternalStore, so state is its correct
+home; documented cost: StrictMode dev double-invoke builds one discarded rig whose only live
+side effect is an inert emotion-store subscription (mic/VAD/workers acquire only in
+start()/init(), never reached). (3) purity/immutability — agent-face's mutable sim moved from a
+frozen useMemo result into a ref created lazily in the emotion effect (module-scope createSim);
+the 60fps mutate-in-place loop is byte-for-byte identical, guarded for the one pre-effect frame;
+render buffer seed is its own pure memo; Dust uses a seeded mulberry32 PRNG so its render memo
+is idempotent. (4) set-state-in-effect — settings-panel derives injected config (same-render
+now, was one render late) and keys fetched models by provider (stale catalog can't flash during
+a provider switch — deliberate small improvement, called out); use-orchestrator's
+leave-hands-free reset moved into the conversation-store subscription callback (sanctioned
+home); use-capabilities' SSR two-pass browser sniff replaced with useSyncExternalStore + module-
+cached server/client snapshots (hydration-safe BY CONSTRUCTION — server HTML and hydration
+render share the server snapshot) and config/loading are now derived from the single probed
+state.
+EVERY RESTORED RULE WAS WATCHED FAILING at error severity before being trusted: injected
+violations for use-memo/exhaustive-deps (the original pattern itself), refs ("Cannot access
+refs during render"), purity ("Cannot call impure function during render"), immutability ("This
+value cannot be modified"), set-state-in-effect ("Calling setState synchronously") each turned
+lint red, then were reverted.
+ENVIRONMENTAL LANDMINE FOUND AND ROUTED AROUND: the first e2e run FAILED 9/15 — because
+Playwright's reuseExistingServer reused localhost:3000, WHICH WAS SERVING FELIPE'S OTHER
+PROJECT ("Plant Faces", a Next 15 dev server, pid 27069). The suite was testing the wrong app
+entirely. Ran with PLAYWRIGHT_PORT=3100 (the config's own escape hatch) rather than killing
+Felipe's other dev server; it is STILL RUNNING and untouched. Any future local e2e run on this
+machine must either free :3000 or set PLAYWRIGHT_PORT.
+Verify (all RUN, $? captured directly, after EACH family and finally): npm run lint EXIT=0 with
+zero react-hooks findings and zero warnings; npm run typecheck EXIT=0; npm test EXIT=0 (515);
+PLAYWRIGHT_PORT=3100 npx playwright test EXIT=0 (14 passed incl. emotion + lipsync driving the
+particle face, and all 4 degradation tests with KNOWN_TRACKED still the empty array at
+degradation.spec.ts:45); sync-template run before every commit. Flipped passes -> true.
+UAT: [frontend] react-hooks refactor VISUAL pass: blink, glitch static, love-heartbeat, sleepy
+breathing and the speaking mouth at 60fps look unchanged; hands-free -> switch to PTT in
+settings stops listening and does not auto-resume on re-entering hands-free.
