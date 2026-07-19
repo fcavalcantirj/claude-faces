@@ -192,13 +192,21 @@ export function useOrchestrator(): UseOrchestrator {
     }
   }, [rig, handsFree])
 
-  // Leaving hands-free mode stops any active listening.
+  // Leaving hands-free mode stops any active listening. The input-mode change
+  // is an external-store event, so react to it in the subscription callback
+  // (where setState is sanctioned) instead of a cascading effect.
   useEffect(() => {
-    if (!handsFree && listening) {
-      void rig.vad.pause()
-      setListening(false)
-    }
-  }, [rig, handsFree, listening])
+    let prev = conversation.getState().settings.inputMode
+    return conversation.subscribe(() => {
+      const mode = conversation.getState().settings.inputMode
+      if (mode === prev) return
+      prev = mode
+      if (mode !== 'hands-free') {
+        void rig.vad.pause() // idempotent when already idle
+        setListening(false)
+      }
+    })
+  }, [conversation, rig])
 
   // Escape = global barge-in.
   useEffect(() => {

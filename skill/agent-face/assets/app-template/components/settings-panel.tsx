@@ -61,23 +61,31 @@ export function SettingsPanel({
 
   const doFetch = fetchImpl ?? (typeof fetch !== 'undefined' ? fetch : undefined)
 
-  const [config, setConfig] = useState<AppConfig | null>(injectedConfig ?? null)
+  // DERIVED, not mirrored: an injected config applies in the same render (the
+  // old effect that copied the prop into state was one render late and tripped
+  // the set-state-in-effect rule); only the fetched probe is state.
+  const [fetchedConfig, setFetchedConfig] = useState<AppConfig | null>(null)
   const [configError, setConfigError] = useState<string | null>(null)
-  const [models, setModels] = useState<ModelInfo[]>([])
+  const config = injectedConfig ?? fetchedConfig
+
+  // Fetched models are KEYED BY PROVIDER and derived against the active one, so
+  // switching providers empties the list by derivation (no synchronous setState
+  // in the effect's early return) and A's stale catalog never shows during B's
+  // fetch.
+  const [fetchedModels, setFetchedModels] = useState<{
+    provider: string
+    models: ModelInfo[]
+  } | null>(null)
 
   // Load the capability probe once the drawer opens (unless config is injected).
   useEffect(() => {
-    if (injectedConfig) {
-      setConfig(injectedConfig)
-      return
-    }
-    if (!open || !doFetch) return
+    if (injectedConfig || !open || !doFetch) return
     let cancelled = false
     doFetch('/api/config')
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`config ${r.status}`))))
       .then((data: AppConfig) => {
         if (!cancelled) {
-          setConfig(data)
+          setFetchedConfig(data)
           setConfigError(null)
         }
       })
@@ -95,18 +103,17 @@ export function SettingsPanel({
     [config, settings.provider],
   )
 
+  const models = fetchedModels?.provider === activeProvider ? fetchedModels.models : []
+
   // Fetch the model catalog for the active provider (agent-bridge has no picker).
   useEffect(() => {
-    if (!doFetch || !activeProvider || activeProvider === 'agent-bridge') {
-      setModels([])
-      return
-    }
+    if (!doFetch || !activeProvider || activeProvider === 'agent-bridge') return
     let cancelled = false
     doFetch(`/api/models?provider=${encodeURIComponent(activeProvider)}`)
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`models ${r.status}`))))
       .then((data: { models: ModelInfo[]; default: string | null }) => {
         if (cancelled) return
-        setModels(data.models ?? [])
+        setFetchedModels({ provider: activeProvider, models: data.models ?? [] })
         // Preselect the server default when the user hasn't chosen a valid model.
         const ids = new Set((data.models ?? []).map((m) => m.id))
         if ((!settings.model || !ids.has(settings.model)) && data.default) {
@@ -114,7 +121,7 @@ export function SettingsPanel({
         }
       })
       .catch(() => {
-        if (!cancelled) setModels([])
+        if (!cancelled) setFetchedModels({ provider: activeProvider, models: [] })
       })
     return () => {
       cancelled = true
