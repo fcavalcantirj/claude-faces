@@ -2530,3 +2530,23 @@ Verify (all RUN, $? captured directly, THIS tree): npm run verify EXIT=0 (6/6);
 PLAYWRIGHT_PORT=3100 npm run verify -- --e2e EXIT=0 (7/7 incl. 14 playwright tests);
 npm run verify:linux EXIT=0 (ALL 6 GATES in a clean node:22-bookworm container);
 ./progress.sh 69/69 (100%). Flipped passes -> true.
+
+2026-07-19: [infra] LIVE smoke of the Agent SDK bridge — Felipe asked to test with the real SDK
+and the FIRST REAL BRAIN CALL IN THE PROJECT'S HISTORY happened tonight. With
+@anthropic-ai/claude-agent-sdk 0.3.215 installed in bridge/ (root package.json untouched):
+(1) GUARD LIVE-VERIFIED: with ANTHROPIC_API_KEY set the bridge refused to start, printed the
+metered-billing explanation, EXIT=1, port never opened. (2) LIVE COMPLETION over the
+subscription login: stream:false returned {"content":"Talking faces make agents human."},
+finish_reason stop, usage mapped, 8.4s wall. (3) LIVE STREAMING: role chunk -> text deltas ->
+finish chunk with usage -> data: [DONE] — byte-compatible with what lib/providers/sse.ts
+parses. (4) LIVE CONTINUITY: a replayed history with assistant turns produced an exact repeat
+of the prior turn's reply ("1\n2\n3\n4\n5") — the stored-session resume path exercised end to
+end (resume vs digest not distinguishable from outside; behaviour correct either way).
+(5) TEARDOWN: SIGTERM -> "[bridge] shutting down", port 8787 freed, ZERO orphan claude
+subprocesses in ps afterwards.
+STILL UAT (human, unchanged): the full spoken loop in the browser (mic -> face speaks the
+agent's reply), barge-in under a real mic, bridge-restart digest recovery mid-conversation, and
+confirming zero metered usage on the billing page.
+Verify (all RUN, $? captured directly): guard EXIT=1 with key present; healthz {"ok":true};
+two live completions + one live SSE stream EXIT=0 with correct frames; lsof port check 0 after
+shutdown.
