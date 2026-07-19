@@ -2648,3 +2648,16 @@ source = none; sync-template run; npm run verify EXIT=0 (6/6).
 UAT: [frontend] Felipe with real mic+speakers in SPEAK FREELY: a LONG reply plays to the end;
 speaking after it finishes starts the next turn (~0.4s re-arm); Esc/STOP still interrupts
 instantly; no self-interruption cycling.
+
+2026-07-19: [infra] Bridge permission mode surfaced properly after live UAT hit it: the agent
+told Felipe it could create HTML but "the sandbox asked for permission, so it got blocked" —
+the default acceptEdits auto-approves file edits but NOT command execution, and headless
+denials read as "blocked". Felipe (owner, own machine, personal bridge) chose bypassPermissions
+— same judgment as his daily claude --dangerously-skip-permissions. Added
+npm run start:yolo (CLAUDE_BRIDGE_PERMISSION_MODE=bypassPermissions) + a README section
+stating the voice-interface trade plainly: a misheard sentence becomes an agent action with no
+confirmation click. Bridge restarted in bypassPermissions.
+Verify (RUN, $? captured directly): startup log shows "permission mode: bypassPermissions";
+LIVE through the bridge, the agent CREATED /tmp/face-yolo-test.html and RAN cat on it — and I
+verified the file's existence and content ON DISK independently of the agent's claim (FACE WAS
+HERE; FILE_CHECK_EXIT=0). Bridge unit tests still 61/61.

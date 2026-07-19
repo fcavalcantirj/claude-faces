@@ -64,6 +64,14 @@ curl -s http://127.0.0.1:8787/v1/chat/completions \
 | `CLAUDE_BRIDGE_TOKEN` | *(none)* | If set, requests must send `Authorization: Bearer <token>` (app side: `AGENT_BRIDGE_KEY`) |
 | `CLAUDE_BRIDGE_MODEL` | SDK default | Model override passed to the SDK |
 | `CLAUDE_BRIDGE_PERMISSION_MODE` | `acceptEdits` | SDK permission mode (`default`, `acceptEdits`, `bypassPermissions`) |
+
+**Permission mode, in practice**: the default `acceptEdits` auto-approves file edits but NOT
+command execution — headless, those requests are denied, so the agent says things like "the
+sandbox asked for permission, so it got blocked". If you are the operator using your own agent
+and want it to actually run things (`npm run start:yolo`, or set
+`CLAUDE_BRIDGE_PERMISSION_MODE=bypassPermissions`), understand what that means **on a
+voice-driven interface**: a misheard sentence becomes an agent action with no confirmation
+click. Owner's machine, owner's rules — but that is the trade.
 | `CLAUDE_BRIDGE_CWD` | *(none)* | Working directory for the agent |
 | `CLAUDE_BRIDGE_ALLOW_API_KEY` | off | Explicitly allow metered-key billing (see above) |
 
