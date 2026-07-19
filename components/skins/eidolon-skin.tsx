@@ -45,7 +45,7 @@ export interface EidolonSkinDriver {
   bindView(bindings: EidolonViewBindings): () => void
 }
 
-type ReactRoot = { unmount(): void }
+type ReactRoot = { render(children: ReturnType<typeof createElement>): void; unmount(): void }
 
 class EidolonSkin implements FaceSkin, EidolonSkinDriver {
   readonly id = 'eidolon' as const
@@ -56,6 +56,10 @@ class EidolonSkin implements FaceSkin, EidolonSkinDriver {
   private state = createInitialState()
   private bindings: EidolonViewBindings | null = null
   private root: ReactRoot | null = null
+  /** The container we anchored a root on (see RootHost note in mount()). */
+  private host: RootHost | null = null
+  /** Set by dispose(); a mount still awaiting its imports must then create nothing. */
+  private torn = false
 
   setEmotion(emotion: Emotion): void {
     this.state.emotion = emotion
@@ -99,16 +103,20 @@ class EidolonSkin implements FaceSkin, EidolonSkinDriver {
       import('react-dom/client'),
       import('./eidolon-skin-view'),
     ])
-    // Idempotent remount: React StrictMode double-invoke, a skin switch, or a
-    // re-entry can call mount() again while a root is already live. Tear the
-    // prior root down first — never call createRoot() twice on a container that
-    // still holds a root, which logs "already been passed to createRoot()",
-    // orphans the first Three.js scene, and leaks its WebGL context.
-    if (this.root) {
-      this.root.unmount()
-      this.root = null
-    }
-    const root = createRoot(container)
+    // The owning effect may have cleaned up WHILE those imports were in flight
+    // (StrictMode remount, skin switch, HMR). dispose() then found root===null
+    // and unmounted nothing — so creating a root here would orphan it on a
+    // container a newer skin is about to claim, and the next mount would log
+    // React's "already been passed to createRoot()" (hit live, 2026-07-19).
+    if (this.torn) return
+    // Anchor the root ON THE CONTAINER, not just on this instance: a new skin
+    // object (fresh effect run, HMR-swapped module) must render into the
+    // existing root — React's own advice — rather than createRoot() a second
+    // time on the same node. The property survives instance and module churn.
+    const host = container as RootHost
+    const root = host.__agentFaceRoot ?? createRoot(container)
+    host.__agentFaceRoot = root
+    this.host = host
     this.root = root
     root.render(createElement(EidolonSkinView, { driver: this }))
     this.exposeE2EHook()
@@ -128,13 +136,22 @@ class EidolonSkin implements FaceSkin, EidolonSkinDriver {
   }
 
   dispose(): void {
+    this.torn = true
     this.bindings = null
     if (this.root) {
       this.root.unmount()
+      // Free the container for a genuinely fresh root next mount.
+      if (this.host && this.host.__agentFaceRoot === this.root) {
+        delete this.host.__agentFaceRoot
+      }
       this.root = null
+      this.host = null
     }
   }
 }
+
+/** A container element carrying the root anchored on it (survives HMR/instances). */
+type RootHost = HTMLElement & { __agentFaceRoot?: ReactRoot }
 
 export function createEidolonSkin(): FaceSkin {
   return new EidolonSkin()

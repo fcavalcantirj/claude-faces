@@ -2592,3 +2592,30 @@ Verify (all RUN, $? captured directly): npx eslint . EXIT=0; npm run typecheck E
 EXIT=0 (515); PLAYWRIGHT_PORT=3100 npx playwright test EXIT=0 (15 passed); sync-template run;
 npm run verify EXIT=0 (6/6); screenshot per round, layout confirmed each time.
 UAT: [frontend] Felipe is live-driving the app — his eyes are the gate.
+
+2026-07-19: [frontend] The double-createRoot warning CAME BACK live — and it was never truly
+fixed. Felipe hit "already been passed to createRoot()" (eidolon-skin.tsx:111) in his real
+session while I hot-edited the layout around him. ROOT CAUSE, sharper than task #60's fix:
+EidolonSkin.mount() AWAITS two dynamic imports BEFORE its this.root guard. If the owning
+effect cleans up during that window (StrictMode remount, skin switch, HMR), dispose() finds
+root===null and unmounts NOTHING — then the late import resolution creates a root nobody owns,
+and the next mount createRoot()s the same container. The #60 guard only covered the same
+instance's already-created root; the async gap and instance churn were both open. Same shape as
+hermes' half-connected CLI lesson: the handle must exist before the await, or the teardown must
+know the attempt happened.
+FIX, two layers: (1) a `torn` flag — dispose() during in-flight imports means mount creates
+NOTHING on resolution; (2) the root is anchored ON THE CONTAINER (RootHost.__agentFaceRoot) and
+REUSED by any later skin instance — React's own advice ("call root.render() on the existing
+root") — so instance churn and HMR module swaps render into the existing root instead of
+re-creating it; dispose() unmounts and clears the anchor so a genuinely fresh mount gets a
+fresh root.
+TDD: two new tests written FIRST and watched FAIL against the old code (skins.test.ts):
+dispose-during-in-flight-mount leaves zero roots (createRoot never called); a second skin
+instance reuses the container root (createRoot once, render twice), and after dispose a third
+mount gets a fresh root. The existing created−unmounted≤1 idempotency test still passes.
+Verify (all RUN, $? captured directly): skins tests RED 2/11 -> GREEN 11/11; npm test EXIT=0
+(517); lint/typecheck EXIT=0; PLAYWRIGHT_PORT=3100 playwright EXIT=0 (15 passed) AND
+grep -ci "already been passed to createRoot" over the full run output = 0; sync-template run;
+npm run verify EXIT=0 (6/6).
+UAT: [frontend] Felipe: refresh the tab (the pre-fix orphan root lives in the old page until
+reload) and confirm the console stays clean through a conversation + settings changes.

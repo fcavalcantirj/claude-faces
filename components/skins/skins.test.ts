@@ -95,6 +95,55 @@ describe('EIDOLON skin controller', () => {
 
     skin.dispose()
   })
+
+  it('dispose() during the in-flight mount imports leaves NO root behind (async race)', async () => {
+    // mount() awaits two dynamic imports BEFORE creating the root. If the
+    // owning effect cleans up during that window (StrictMode remount, skin
+    // switch, HMR), dispose() finds root === null and unmounts nothing — then
+    // the late import resolution used to create a root nobody owns, and the
+    // NEXT mount on the same container logged React's "already been passed to
+    // createRoot()" (seen live, 2026-07-19). Disposed means: create nothing.
+    createRootMock.mockReset()
+    createRootMock.mockImplementation(() => ({ render: vi.fn(), unmount: vi.fn() }))
+    const skin = createEidolonSkin()
+    const container = document.createElement('div')
+
+    const inFlight = skin.mount(container) // suspended on the dynamic imports
+    skin.dispose() // effect cleanup wins the race
+    await inFlight
+
+    expect(createRootMock).not.toHaveBeenCalled()
+  })
+
+  it('a SECOND skin instance reuses the container root instead of re-creating it', async () => {
+    // Instance churn (a new skin object per effect run, or an HMR-swapped
+    // module) must not call createRoot() on a container that already holds a
+    // live root — React's advice is to render into the existing root instead.
+    const roots: Array<{ render: ReturnType<typeof vi.fn>; unmount: ReturnType<typeof vi.fn> }> = []
+    createRootMock.mockReset()
+    createRootMock.mockImplementation(() => {
+      const root = { render: vi.fn(), unmount: vi.fn() }
+      roots.push(root)
+      return root
+    })
+    const container = document.createElement('div')
+
+    const first = createEidolonSkin()
+    await first.mount(container) // its owner loses track of it (e.g. HMR)
+    const second = createEidolonSkin()
+    await second.mount(container)
+
+    expect(createRootMock).toHaveBeenCalledTimes(1)
+    expect(roots[0].render).toHaveBeenCalledTimes(2)
+
+    // The current owner's dispose truly frees the container for a fresh root.
+    second.dispose()
+    expect(roots[0].unmount).toHaveBeenCalledTimes(1)
+    const third = createEidolonSkin()
+    await third.mount(container)
+    expect(createRootMock).toHaveBeenCalledTimes(2)
+    third.dispose()
+  })
 })
 
 describe('TalkingHead skin controller (stretch stub)', () => {
