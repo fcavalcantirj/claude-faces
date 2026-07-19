@@ -263,16 +263,15 @@ export function SettingsPanel({
         />
 
         {/* Voice language ---------------------------------------------------
-            Whisper's per-clip auto-detect misreads accented speech (accented
-            English → Portuguese). Pinning fixes it; Auto stays the default. */}
+            Whisper's per-clip auto-detect misreads accented speech, so English
+            is pinned by default; Auto re-enables per-clip detection. */}
         <Segmented<SttLanguage>
           title="VOICE LANGUAGE"
           value={settings.sttLanguage}
           onChange={(v) => conv.setSttLanguage(v)}
           options={[
-            { value: 'auto', label: 'Auto' },
             { value: 'en', label: 'English' },
-            { value: 'pt', label: 'Português' },
+            { value: 'auto', label: 'Auto' },
           ]}
         />
 

@@ -2736,3 +2736,13 @@ Felipe flips his own setting once in the drawer.
 Verify (all RUN, $? captured directly): npm test EXIT=0 (default + junk-normalize tests updated
 to 'en'); eslint/typecheck EXIT=0; PLAYWRIGHT_PORT=3100 playwright EXIT=0 (15); sync-template
 run; npm run verify EXIT=0 (6/6).
+
+2026-07-19: [frontend] VOICE LANGUAGE trimmed to English | Auto (Felipe: "eng or auto, no
+portugues") — Português spent about an hour in the picker before live PT transcription proved
+too poor to offer. 'pt' removed from the SttLanguage union AND the valid-values list, so a
+browser that clicked Português during that hour SELF-HEALS to English on load (a persisted
+value with no visible control would be a stuck invisible setting). English listed first, as
+the default. deps.language stays a free BCP-47 embedder override.
+Verify (all RUN, $? captured directly): npm test EXIT=0 (heal test covers legacy 'pt' AND
+junk); eslint/typecheck EXIT=0; PLAYWRIGHT_PORT=3100 playwright EXIT=0 (15); sync-template
+run; npm run verify EXIT=0 (6/6).

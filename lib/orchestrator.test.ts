@@ -132,24 +132,24 @@ describe('conversation orchestrator', () => {
       runChat: makeFakeChat().runChat,
     })
 
-    conversation.setSttLanguage('pt')
-    await orch.submitAudio(new Blob(['a']))
+    await orch.submitAudio(new Blob(['a'])) // shipped default: English pin
     conversation.setSttLanguage('auto')
     await orch.submitAudio(new Blob(['b']))
-    expect(seenLanguages).toEqual(['pt', undefined])
+    expect(seenLanguages).toEqual(['en', undefined])
 
-    // An explicit deps.language (embedder override) beats the settings picker.
+    // An explicit deps.language (embedder override, free BCP-47 string) beats
+    // the settings picker.
     const pinned = createOrchestrator({
       conversation,
       emotion,
       tts: makeFakeTts().tts,
       transcribe,
       runChat: makeFakeChat().runChat,
-      language: 'en',
+      language: 'pt',
     })
-    conversation.setSttLanguage('pt')
+    conversation.setSttLanguage('en')
     await pinned.submitAudio(new Blob(['c']))
-    expect(seenLanguages).toEqual(['pt', undefined, 'en'])
+    expect(seenLanguages).toEqual(['en', undefined, 'pt'])
   })
 
   it('runs a full spoken turn: transcribe → chat → speak → lip-sync → rest', async () => {
