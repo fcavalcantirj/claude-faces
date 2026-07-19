@@ -81,10 +81,11 @@ function buildRig(): OrchestratorRig {
     onError: (err) => console.warn('[push-to-talk]', err),
   })
 
+  // HALF-DUPLEX: the VAD suppresses itself while the face speaks (see
+  // lib/audio/vad.ts) — echo of the reply must never reach submitAudio.
+  // Interrupting mid-reply is a UI action (Esc / STOP / the talk controls).
   const vad = createVad({
     onSpeechEnd: (segment) => void orchRef.current?.submitAudio(segment.blob),
-    // Speaking OVER the face is a barge-in — abort chat + TTS immediately.
-    onBargeIn: () => orchRef.current?.notifyUserSpeaking(),
     onError: (err) => console.warn('[vad]', err),
   })
 

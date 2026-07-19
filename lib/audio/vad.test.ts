@@ -152,24 +152,105 @@ describe("VadController", () => {
     expect(controller.getState()).toBe("listening");
   });
 
-  it("fires a barge-in only when the face is speaking", async () => {
-    const onBargeIn = vi.fn();
-    const { controller, getVad } = makeController({ callbacks: { onBargeIn } });
+  // HALF-DUPLEX (2026-07-19, found in the first-ever live conversation): the
+  // face's own TTS reaching the mic IS speech — no probability model can tell
+  // it from the user, and browser AEC leaks. So while the face speaks the mic
+  // is suppressed entirely, and it resumes only after a room-tail cooldown.
+  // The old behaviour (speech-start during faceSpeaking fires a barge-in that
+  // interrupts the reply) made the face interrupt ITSELF mid-sentence.
+
+  it("half-duplex: face speaking pauses the engine and in-flight detections are ignored", async () => {
+    const onSpeechStart = vi.fn();
+    const onSpeechEnd = vi.fn();
+    const { controller, getVad } = makeController({ callbacks: { onSpeechStart, onSpeechEnd } });
     await controller.start();
 
-    // Not speaking → no barge-in.
-    getVad().config.onSpeechStart();
-    expect(onBargeIn).not.toHaveBeenCalled();
-
-    // Face speaking → the next speech-start IS a barge-in.
     controller.setFaceSpeaking(true);
-    getVad().config.onSpeechStart();
-    expect(onBargeIn).toHaveBeenCalledTimes(1);
+    expect(getVad().pauseCalls).toBe(1); // mic suppressed while the reply plays
 
-    // Cleared again → no barge-in.
-    controller.setFaceSpeaking(false);
+    // Frames already in the pipeline can still fire — ignore them entirely:
+    // no state change, no callbacks, and the echo segment never becomes a turn.
     getVad().config.onSpeechStart();
-    expect(onBargeIn).toHaveBeenCalledTimes(1);
+    expect(onSpeechStart).not.toHaveBeenCalled();
+    await getVad().config.onSpeechEnd(new Float32Array(VAD_SAMPLE_RATE));
+    expect(onSpeechEnd).not.toHaveBeenCalled();
+  });
+
+  it("half-duplex: listening resumes after the reply, after the cooldown — and a stale segment inside the cooldown is dropped", async () => {
+    vi.useFakeTimers();
+    try {
+      const onSpeechEnd = vi.fn();
+      const { controller, getVad } = makeController({
+        callbacks: { onSpeechEnd },
+        options: { resumeDelayMs: 400 },
+      });
+      await controller.start();
+      controller.setFaceSpeaking(true);
+      controller.setFaceSpeaking(false);
+
+      // Inside the cooldown: still suppressed, stale segments still dropped.
+      await getVad().config.onSpeechEnd(new Float32Array(VAD_SAMPLE_RATE));
+      expect(onSpeechEnd).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(399);
+      expect(getVad().startCalls).toBe(1);
+
+      await vi.advanceTimersByTimeAsync(2);
+      expect(getVad().startCalls).toBe(2); // resumed
+      expect(controller.getState()).toBe("listening");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("half-duplex: the gap between reply clips does not flap the mic", async () => {
+    vi.useFakeTimers();
+    try {
+      const { controller, getVad } = makeController({ options: { resumeDelayMs: 400 } });
+      await controller.start();
+      controller.setFaceSpeaking(true); // clip 1 starts
+      controller.setFaceSpeaking(false); // clip 1 ends
+      await vi.advanceTimersByTimeAsync(200);
+      controller.setFaceSpeaking(true); // clip 2 starts inside the cooldown
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(getVad().startCalls).toBe(1); // never resumed mid-reply
+      controller.setFaceSpeaking(false);
+      await vi.advanceTimersByTimeAsync(400);
+      expect(getVad().startCalls).toBe(2); // one resume, after the LAST clip
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("half-duplex: face speech while the mic is OFF never re-arms it", async () => {
+    vi.useFakeTimers();
+    try {
+      const { controller, getVad } = makeController();
+      await controller.start();
+      await controller.pause(); // user turned hands-free off
+      controller.setFaceSpeaking(true);
+      controller.setFaceSpeaking(false);
+      await vi.advanceTimersByTimeAsync(2_000);
+      expect(getVad().startCalls).toBe(1); // still off
+      expect(controller.getState()).toBe("idle");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("half-duplex: a user pause during the cooldown cancels the pending resume", async () => {
+    vi.useFakeTimers();
+    try {
+      const { controller, getVad } = makeController({ options: { resumeDelayMs: 400 } });
+      await controller.start();
+      controller.setFaceSpeaking(true);
+      controller.setFaceSpeaking(false);
+      await controller.pause(); // user intent wins over the scheduled resume
+      await vi.advanceTimersByTimeAsync(2_000);
+      expect(getVad().startCalls).toBe(1);
+      expect(controller.getState()).toBe("idle");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("routes short noises to onMisfire (debounce) without a segment", async () => {

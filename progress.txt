@@ -2619,3 +2619,32 @@ grep -ci "already been passed to createRoot" over the full run output = 0; sync-
 npm run verify EXIT=0 (6/6).
 UAT: [frontend] Felipe: refresh the tab (the pre-fix orphan root lives in the old page until
 reload) and confirm the console stays clean through a conversation + settings changes.
+
+2026-07-19: [frontend] HALF-DUPLEX for hands-free — the face was interrupting ITSELF. Felipe's
+live UAT (the first-ever spoken hands-free session): replies started and stopped; typed/PTT
+replies played fully. ROOT CAUSE: no half-duplex gating, and the faceSpeaking seam was wired
+BACKWARDS — vad.ts fired onBargeIn on every raw VAD speech-START while faceSpeaking was true
+(before even the 400ms minSpeech debounce), so the reply's own audio leaking past browser AEC
+tripped speech-start -> notifyUserSpeaking -> interrupt() killed chat+TTS. And handleSpeechEnd
+was ungated, so echo segments became NEW user turns via submitAudio (which interrupts-if-busy)
+— the cycling. The reply coming out of the speakers IS speech; no probability model can tell it
+from the user. Felipe chose half-duplex over stricter voice barge-in (which is physically
+unreliable with open speakers).
+FIX (lib/audio/vad.ts): setFaceSpeaking(true) pauses the engine (remembering it was
+listening); in-flight detections are ignored entirely (speech-start, misfire) and segments
+dropped (speech-end, incl. stale ones resolving inside the cooldown); setFaceSpeaking(false)
+re-arms via start() after resumeDelayMs (default 400ms room-tail cooldown) — the cooldown
+doubles as inter-clip glue so multi-clip replies never flap the mic; user pause()/destroy()
+cancels any pending resume (intent wins). onBargeIn REMOVED from the VAD callbacks and the rig
+wiring; orchestrator.notifyUserSpeaking stays (public, tested, future far-field/headset entry).
+Voice barge-in is gone by decision: interrupt = Esc / STOP / tapping the talk or SPEAK FREELY
+controls.
+TDD: 5 half-duplex tests replaced the inverted barge-in pin (suppress+ignore, cooldown resume
++ stale-segment drop, inter-clip no-flap, no re-arm when mic off, user-pause cancels resume);
+RED 3/17 -> GREEN 17/17.
+Verify (all RUN, $? captured directly): vad tests 17/17; npm test EXIT=0; eslint/typecheck
+EXIT=0; PLAYWRIGHT_PORT=3100 playwright EXIT=0 (15 passed); grep onBargeIn over first-party
+source = none; sync-template run; npm run verify EXIT=0 (6/6).
+UAT: [frontend] Felipe with real mic+speakers in SPEAK FREELY: a LONG reply plays to the end;
+speaking after it finishes starts the next turn (~0.4s re-arm); Esc/STOP still interrupts
+instantly; no self-interruption cycling.

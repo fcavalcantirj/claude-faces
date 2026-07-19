@@ -14,9 +14,14 @@
 //     headers instead of being blocked as cross-origin.
 //   - On speech-end the captured Float32Array (16 kHz mono) is WAV-encoded into
 //     a Blob the STT layer (`/api/transcribe`) can post directly.
-//   - Barge-in: if the user starts speaking while the FACE is speaking, the
-//     controller fires `onBargeIn` so the orchestrator can cancel TTS + the
-//     in-flight chat.
+//   - HALF-DUPLEX: while the FACE is speaking the mic is SUPPRESSED entirely
+//     (engine paused; in-flight detections dropped) and resumes only after a
+//     short room-tail cooldown. Why: the reply coming out of the speakers IS
+//     speech — no probability model can tell it from the user, and browser AEC
+//     leaks — so an open mic makes the face interrupt ITSELF and feed its own
+//     echo back in as new turns (observed in the first live conversation,
+//     2026-07-19). Interrupting mid-reply is a UI action (Esc / STOP / tapping
+//     the talk or SPEAK FREELY controls), not a voice action.
 
 import { resumeAudio as defaultResumeAudio } from "./context";
 
@@ -47,6 +52,8 @@ export const DEFAULT_NEGATIVE_SPEECH_THRESHOLD = 0.35;
 export const DEFAULT_MIN_SPEECH_MS = 400;
 export const DEFAULT_REDEMPTION_MS = 1400;
 export const DEFAULT_PRE_SPEECH_PAD_MS = 800;
+/** Cooldown after the face stops speaking before the mic re-arms (room tail). */
+export const DEFAULT_RESUME_DELAY_MS = 400;
 
 /** A captured utterance, ready to hand to STT. */
 export interface VadSegment {
@@ -68,8 +75,6 @@ export interface VadCallbacks {
   onSpeechEnd?: (segment: VadSegment) => void;
   /** Speech too short to count (below `minSpeechFrames`) — a debounced noise. */
   onMisfire?: () => void;
-  /** User spoke WHILE the face was speaking — cancel TTS + the in-flight chat. */
-  onBargeIn?: () => void;
   /** A load/encode failure surfaced out-of-band (start() also rejects on load). */
   onError?: (err: unknown) => void;
   /** State transitions (for UI indicators). */
@@ -89,6 +94,8 @@ export interface VadTuning {
 }
 
 export interface VadOptions extends VadTuning {
+  /** Half-duplex: ms to wait after the face stops speaking before re-arming. */
+  resumeDelayMs?: number;
   /** The SHARED mic stream (or a getter). Reuses the recorder's stream. */
   stream?: MediaStream | (() => MediaStream | Promise<MediaStream>);
   /** The SHARED AudioContext, so the worklet taps the same graph. */
@@ -183,8 +190,12 @@ export class VadController {
   private vad: MicVADLike | null = null;
   private loadPromise: Promise<MicVADLike> | null = null;
   private disposed = false;
-  /** Is the FACE currently speaking? Governs whether speech-start is a barge-in. */
+  /** Is the FACE currently speaking? Suppresses the mic entirely (half-duplex). */
   private faceSpeaking = false;
+  /** Was the mic listening when suppression began (so we know to re-arm)? */
+  private resumeAfterSpeech = false;
+  /** Pending cooldown re-arm; cancelled by user pause()/destroy() or a next clip. */
+  private resumeTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(
     callbacks: VadCallbacks = {},
@@ -212,11 +223,38 @@ export class VadController {
   }
 
   /**
-   * Tell the controller whether the face is currently speaking. When true, a
-   * detected speech-start is treated as a barge-in (fires `onBargeIn`).
+   * HALF-DUPLEX gate. face speaking → suppress the mic (pause the engine; any
+   * in-flight detections are dropped). Face done → re-arm after a cooldown, and
+   * only if the mic was listening when suppression began. A reply is several
+   * TTS clips; the cooldown doubles as inter-clip glue (the next clip's start
+   * cancels the pending resume), so the mic never flaps mid-reply.
    */
   setFaceSpeaking(speaking: boolean): void {
+    if (speaking === this.faceSpeaking) return;
     this.faceSpeaking = speaking;
+    if (speaking) {
+      this.cancelResume();
+      if (this.active && this.vad) {
+        this.resumeAfterSpeech = true;
+        void Promise.resolve(this.vad.pause()).catch(() => {});
+        this.setState("idle");
+      }
+    } else if (this.resumeAfterSpeech) {
+      this.cancelResume();
+      this.resumeTimer = setTimeout(() => {
+        this.resumeTimer = null;
+        if (this.disposed || this.faceSpeaking || !this.resumeAfterSpeech) return;
+        this.resumeAfterSpeech = false;
+        void this.start().catch((err) => this.callbacks.onError?.(err));
+      }, this.options.resumeDelayMs ?? DEFAULT_RESUME_DELAY_MS);
+    }
+  }
+
+  private cancelResume(): void {
+    if (this.resumeTimer !== null) {
+      clearTimeout(this.resumeTimer);
+      this.resumeTimer = null;
+    }
   }
 
   private resolveGetStream(): (() => Promise<MediaStream>) | undefined {
@@ -250,15 +288,17 @@ export class VadController {
   }
 
   private handleSpeechStart(): void {
-    if (this.disposed) return;
+    // While the face speaks (or during the pause transition, frames in
+    // flight), the "speech" is the face's own echo — ignore it entirely.
+    if (this.disposed || this.faceSpeaking) return;
     this.setState("speech");
-    // Speaking over the face is a barge-in — cancel TTS + the in-flight chat.
-    if (this.faceSpeaking) this.callbacks.onBargeIn?.();
     this.callbacks.onSpeechStart?.();
   }
 
   private async handleSpeechEnd(audio: Float32Array): Promise<void> {
-    if (this.disposed) return;
+    // Echo captured while the face was speaking (or a stale segment resolving
+    // inside the resume cooldown) must never become a user turn.
+    if (this.disposed || this.faceSpeaking || this.resumeTimer !== null) return;
     // Back to waiting for the next utterance.
     if (this.state === "speech") this.setState("listening");
     const encode = this.deps.encodeWAV ?? defaultEncodeWAV;
@@ -279,7 +319,7 @@ export class VadController {
   }
 
   private handleMisfire(): void {
-    if (this.disposed) return;
+    if (this.disposed || this.faceSpeaking) return;
     if (this.state === "speech") this.setState("listening");
     this.callbacks.onMisfire?.();
   }
@@ -329,6 +369,9 @@ export class VadController {
 
   /** Stop listening but keep the model loaded (a later start() is instant). */
   async pause(): Promise<void> {
+    // User intent beats the half-duplex machinery: no scheduled re-arm survives.
+    this.cancelResume();
+    this.resumeAfterSpeech = false;
     if (!this.vad) {
       this.setState("idle");
       return;
@@ -343,6 +386,8 @@ export class VadController {
   /** Tear down the VAD entirely and release its graph. */
   async destroy(): Promise<void> {
     this.disposed = true;
+    this.cancelResume();
+    this.resumeAfterSpeech = false;
     const vad = this.vad;
     this.vad = null;
     this.loadPromise = null;
