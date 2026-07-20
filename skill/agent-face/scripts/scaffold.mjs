@@ -57,8 +57,10 @@ Options:
 After scaffolding:
   cd <target>
   cp .env.example .env.local     # add >=1 provider key, or wire your running agent (both optional)
-  npm install
-  node ../skill/agent-face/scripts/dev.mjs   # or: npm run dev  (http://localhost:3000)
+  node "${join(HERE, "start.mjs")}"
+      # one command: installs deps on first run, starts the app
+      # (add --port <n> if :3000 is taken by another project)
+  # or by hand: npm install && npm run dev   (http://localhost:3000)
 
 Every provider key is server-side only and optional; with zero keys the app
 still runs on in-browser Whisper + Web Speech.`,
@@ -161,11 +163,14 @@ function main() {
   console.log(
     "  cp .env.example .env.local     # add >=1 provider key, or wire your running agent (both optional)",
   );
-  if (!opts.install) console.log("  npm install");
+  console.log(`  node "${join(HERE, "start.mjs")}"`);
   console.log(
-    "  node <skill>/scripts/dev.mjs   # kills any prior server, starts dev, opens the browser",
+    `      # one command: installs deps${opts.install ? "" : " on first run"}, starts the app, opens the browser`,
   );
-  console.log("  # or simply:  npm run dev   (http://localhost:3000, then press \"talk\")\n");
+  console.log("      # (add --port <n> if :3000 is taken by another project)");
+  console.log(
+    `  # or by hand: ${opts.install ? "" : "npm install && "}npm run dev   (http://localhost:3000, then press "talk")\n`,
+  );
   console.log(
     `The \"${name}\" app runs with zero keys (in-browser Whisper + Web Speech); ` +
       "add a key or wire your running agent for hosted models and FFT lip-sync.",

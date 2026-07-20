@@ -332,7 +332,12 @@ function formatText(report, { sources }) {
 
   lines.push("Summary:");
   if (brain) {
-    lines.push(`  Selected brain: ${BRAIN_LABEL[brain]} (${selectedModel(report, brain)})`);
+    // The bridge usually has no per-request model (the running agent decides);
+    // show its kind rather than interpolating null into the summary.
+    const model = selectedModel(report, brain);
+    const detail =
+      model ?? (brain === "agent-bridge" ? `kind: ${report.agentBridge.kind}` : null);
+    lines.push(`  Selected brain: ${BRAIN_LABEL[brain]}${detail ? ` (${detail})` : ""}`);
   } else {
     lines.push("  Selected brain: — none —");
   }

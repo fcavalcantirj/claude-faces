@@ -53,13 +53,15 @@ and opens the face in your browser. **No bridge and no keys still opens a
 working face** — voice in/out run entirely in the browser; a brain (key or
 bridge) is only needed for intelligent replies.
 
-**"Frees the ports" is forceful:** whatever already listens on the app port
-is SIGTERM/SIGKILLed without asking. If `:3000` is some other project's dev
-server, pass `--port 3100` — on EVERY `start.mjs` / `dev.mjs` run, including
-the scaffolded-app form below. Other flags: `--yolo` runs the bridge in
-`bypassPermissions` (owner's machine, no consent clicks — a misheard
-sentence becomes an agent action), `--no-open` skips the browser, `--stop`
-tears the whole stack down, `--help` lists the rest.
+**"Frees the ports" is identity-scoped:** only a process the launcher can
+tie to THIS app (a stale dev server or bridge from a previous run, judged by
+its working directory / command line) is auto-killed. Anything else holding
+the port — say, another project's dev server on `:3000` — makes it **refuse
+with exit 3** and print the holder's identity; pass `--port 3100` to run
+elsewhere, or `--take-port` to kill the foreign process anyway. Other flags:
+`--yolo` runs the bridge in `bypassPermissions` (owner's machine, no consent
+clicks — a misheard sentence becomes an agent action), `--no-open` skips the
+browser, `--stop` tears the whole stack down, `--help` lists the rest.
 
 Starting from nothing instead of a checkout? Scaffold first, then start:
 
@@ -191,7 +193,8 @@ Wait for the answer before running any deploy command.
 Start the dev server. **Mode B users run `start.mjs` here instead** — it
 starts the bridge, then delegates to `dev.mjs`; `dev.mjs` alone starts only
 the app. `dev.mjs` **always frees the dev port first** (SIGTERM then SIGKILL
-any previous server on that port) before spawning `npm run dev`, then opens
+a previous server of this same app; a foreign process on the port is refused
+— use `--port` or `--take-port`) before spawning `npm run dev`, then opens
 the browser. Let the user press **talk** and speak to the face:
 
 ```bash
@@ -245,7 +248,7 @@ All scripts are harness-agnostic Node ESM — plain `node`, no external deps.
 |---|---|
 | `scripts/start.mjs` | One command: bridge (if present) + dev server + browser; `--stop` tears it down |
 | `scripts/scaffold.mjs` | Copy the app template into a target directory |
-| `scripts/dev.mjs` | Kill any previous server, start dev, open the browser |
+| `scripts/dev.mjs` | Free the dev port (kills only this app's own previous server; foreign holders are refused unless `--take-port`), start dev, open the browser |
 | `scripts/check-env.mjs` | Report which brains / STT / TTS are configured (secrets masked) |
 | `scripts/deploy.mjs` | Deploy to Vercel or build the self-host image |
 

@@ -56,7 +56,7 @@ under any harness with plain `node`):
 | Script | Purpose |
 |---|---|
 | `node skill/agent-face/scripts/scaffold.mjs [dir]` | Copy the app template into a target dir |
-| `node skill/agent-face/scripts/dev.mjs` | Kill any previous server, then start dev + open the browser |
+| `node skill/agent-face/scripts/dev.mjs` | Free the dev port (kills only this app's own previous server; `--take-port` for foreign holders), then start dev + open the browser |
 | `node skill/agent-face/scripts/check-env.mjs` | Report which brains/STT/TTS are configured (secrets masked) |
 | `node skill/agent-face/scripts/deploy.mjs --target vercel\|self-host` | Deploy to Vercel or build the self-host image |
 | `node skill/agent-face/scripts/sync-template.mjs [--check]` | Regenerate (or verify parity of) the packaged app template |

@@ -5,6 +5,7 @@
 //   node start.mjs --port 3100     # app on :3100
 //   node start.mjs --yolo          # bridge in bypassPermissions (owner mode)
 //   node start.mjs --stop          # tear the whole stack down
+//   node start.mjs --take-port     # kill even a foreign port holder (default: refuse)
 //
 // Composition, not reinvention: the app half delegates to dev.mjs (which
 // already port-kills, starts `npm run dev`, and opens the browser). This
@@ -40,6 +41,7 @@ export function parseStartArgs(argv) {
     yolo: false,
     open: true,
     stop: false,
+    takePort: false,
     help: false,
     appDir: process.cwd(),
   };
@@ -50,6 +52,7 @@ export function parseStartArgs(argv) {
     else if (a === "--no-bridge") args.bridge = false;
     else if (a === "--no-open") args.open = false;
     else if (a === "--stop") args.stop = true;
+    else if (a === "--take-port") args.takePort = true;
     else if (a === "--port" || a === "--bridge-port") {
       const n = Number(argv[++i]);
       if (!Number.isInteger(n) || n < 1 || n > 65535) {
@@ -101,7 +104,11 @@ Options:
                      clicks — a misheard sentence becomes an agent action).
   --no-bridge        Skip the bridge even if <app-dir>/bridge exists.
   --no-open          Don't open the browser.
-  --stop             Kill whatever holds the app + bridge ports, then exit.
+  --stop             Stop this app's processes on the app + bridge ports, then
+                     exit. A foreign process on either port is reported, not
+                     killed (add --take-port to kill it too).
+  --take-port        When freeing a port, kill even a holder that is NOT this
+                     app's own process (default: refuse with exit 3).
   --help, -h         This help.
 
 Behavior:
@@ -111,6 +118,9 @@ Behavior:
      subscription-billing guard), and waits for /healthz.
   2. Delegates to dev.mjs: frees the app port, starts the dev server, opens
      the browser. Ctrl-C tears down both.
+  Port freeing only auto-kills THIS app's own stale processes (identified by
+  working directory / command line); anything else is refused — use
+  --port / --bridge-port to move, or --take-port to override.
   No bridge dir? The app still starts — the face works with zero keys.`);
 }
 
@@ -132,10 +142,16 @@ async function waitForHealth(url, timeoutMs = 30_000) {
   return false;
 }
 
-function killPort(port) {
-  return spawnSync("node", [DEV, "--kill-only", "--port", String(port)], {
-    stdio: "inherit",
-  }).status;
+// Free a port via dev.mjs's guarded kill. cwd is the app dir so the guard
+// knows which processes count as "this app's own"; exit 3 = foreign holder
+// refused (see dev.mjs --take-port). Always returns a number: a spawn
+// failure or signal death (status null) must read as failure, never as 0.
+function killPort(port, appDir, takePort) {
+  const argv = [DEV, "--kill-only", "--port", String(port)];
+  if (takePort) argv.push("--take-port");
+  const r = spawnSync("node", argv, { cwd: appDir, stdio: "inherit" });
+  if (r.error) return 1;
+  return r.status == null ? 1 : r.status;
 }
 
 async function main() {
@@ -153,8 +169,10 @@ async function main() {
   }
   if (args.stop) {
     console.log(`Stopping: app :${args.port} + bridge :${args.bridgePort}`);
-    killPort(args.port);
-    killPort(args.bridgePort);
+    const s1 = killPort(args.port, args.appDir, args.takePort);
+    const s2 = killPort(args.bridgePort, args.appDir, args.takePort);
+    const bad = [s1, s2].find((s) => s !== 0);
+    if (bad !== undefined) process.exit(bad);
     return;
   }
 
@@ -182,7 +200,14 @@ async function main() {
       console.log(`bridge: wired .env.local (+ ${wired.added.join(", ")})`);
     }
 
-    killPort(args.bridgePort);
+    const freed = killPort(args.bridgePort, args.appDir, args.takePort);
+    if (freed !== 0) {
+      console.error(
+        `bridge: port ${args.bridgePort} is not available — ` +
+          `pass --bridge-port <n>, or --take-port to kill its holder.`,
+      );
+      process.exit(freed);
+    }
     console.log(`bridge: starting on :${args.bridgePort}${args.yolo ? " (yolo)" : ""}…`);
     bridgeChild = spawn("node", [join(bridgeDir, "src", "server.mjs")], {
       cwd: bridgeDir,
@@ -224,6 +249,7 @@ async function main() {
 
   const devArgs = [DEV, "--port", String(args.port)];
   if (!args.open) devArgs.push("--no-open");
+  if (args.takePort) devArgs.push("--take-port");
   const devChild = spawn("node", devArgs, { cwd: args.appDir, stdio: "inherit" });
 
   const teardown = () => {

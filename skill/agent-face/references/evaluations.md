@@ -92,7 +92,8 @@ loaded, and a boolean pass/fail check.
      still boots with in-browser Whisper (STT) + Web Speech (TTS) and that a
      brain (Mode A key or Mode B agent) is needed for replies.
   3. On the localhost choice it runs `scripts/dev.mjs`, which **frees the dev
-     port first** (kills any previous server) and opens the browser.
+     port first** (kills a previous server of this app; refuses a foreign
+     holder unless `--take-port`) and opens the browser.
   4. It tells the user to press **talk**, speak, and watch the face lip-sync.
 - **Pass/fail:** PASS if it chooses the localhost branch via `dev.mjs`
   (kill-then-start) and honestly states voice works locally but a brain must be

@@ -140,6 +140,16 @@ describe('createEmotionStore — orchestrator-facing store', () => {
     expect(seen).toEqual(['alert', 'neutral'])
   })
 
+  it('setEmotion overrides the phase-derived state and notifies subscribers', () => {
+    const store = createEmotionStore()
+    const seen: string[] = []
+    const unsub = store.subscribe(() => seen.push(store.getState()))
+    store.setEmotion('love')
+    expect(store.getState()).toBe('love')
+    expect(seen).toEqual(['love'])
+    unsub()
+  })
+
   it('decays a transient emotion back to resting after the hold window', () => {
     vi.useFakeTimers()
     try {

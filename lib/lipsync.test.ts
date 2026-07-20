@@ -168,6 +168,22 @@ describe("LipsyncEngine amplitude/viseme", () => {
     expect(engine.getFeatures().volume).toBe(0);
   });
 
+  it("reset fully releases the source and clears accumulated state", () => {
+    const engine = createLipsync({ audioContext: ctx as unknown as AudioContext });
+    engine.connectMediaElement({ src: "clip.wav" } as unknown as HTMLMediaElement);
+    analyserOf(ctx).spectrum = speechSpectrum(255);
+    engine.processFrame();
+    expect(engine.getFeatures().volume).toBeGreaterThan(0);
+    engine.reset();
+    expect(engine.getFeatures().volume).toBe(0);
+  });
+
+  it("getEstimatedFeatures delegates to the Web Speech estimateFeatures fallback", () => {
+    const engine = createLipsync({ audioContext: ctx as unknown as AudioContext });
+    const direct = estimateFeatures("hello there", 350);
+    expect(engine.getEstimatedFeatures("hello there", 350)).toEqual(direct);
+  });
+
   it("connectStream taps a stream without wiring it to the speakers", () => {
     const engine = createLipsync({ audioContext: ctx as unknown as AudioContext });
     // Should not throw; drives the mic/VAD path.

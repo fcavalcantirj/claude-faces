@@ -70,7 +70,7 @@ The `skill/agent-face/` folder is a **portable Agent Skill** (open [Agent Skills
 | Script | Purpose |
 |---|---|
 | `scripts/scaffold.mjs` | Copy the app template into a target dir |
-| `scripts/dev.mjs` | Kill any previous server, start dev, open the browser |
+| `scripts/dev.mjs` | Free the dev port (kills only this app's own previous server; foreign holders refused unless `--take-port`), start dev, open the browser |
 | `scripts/check-env.mjs` | Report which brains/STT/TTS are configured (secrets masked) |
 | `scripts/deploy.mjs` | Deploy to Vercel or build the self-host image |
 

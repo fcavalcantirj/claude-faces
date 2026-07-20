@@ -11,6 +11,7 @@ import { describe, it, expect } from "vitest";
 import { spawnSync, spawn, type ChildProcess } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
+import { tmpdir } from "node:os";
 import net from "node:net";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -33,7 +34,9 @@ function getFreePort(): Promise<number> {
 }
 
 // A listener in a SEPARATE process (so killing it can't take down this test).
-function spawnDecoy(port: number): Promise<ChildProcess> {
+// `cwd` controls how the port guard classifies it: inside the app dir = "ours"
+// (auto-killed), anywhere else = "foreign" (refused without --take-port).
+function spawnDecoy(port: number, cwd?: string): Promise<ChildProcess> {
   const code =
     `const net=require('net');` +
     `net.createServer().listen(${port},'127.0.0.1',()=>process.stdout.write('READY'));` +
@@ -41,6 +44,7 @@ function spawnDecoy(port: number): Promise<ChildProcess> {
   return new Promise((resolve, reject) => {
     const child = spawn("node", ["-e", code], {
       stdio: ["ignore", "pipe", "ignore"],
+      cwd,
     });
     const timer = setTimeout(() => reject(new Error("decoy never listened")), 5000);
     child.stdout!.on("data", (d: Buffer) => {
@@ -113,5 +117,113 @@ describe("dev.mjs frees the port before starting", () => {
     const res = runDev(["--kill-only", "--no-open", "--port", String(port)]);
     expect(res.status).toBe(0);
     expect(res.stderr.toLowerCase()).toContain("free");
+  }, 15000);
+});
+
+// A client with an ESTABLISHED connection to the port, in a separate process
+// with a FOREIGN cwd — the shape of a browser tab attached to a dev server.
+function spawnClient(port: number): Promise<ChildProcess> {
+  const code =
+    `const net=require('net');` +
+    `const s=net.connect(${port},'127.0.0.1',()=>process.stdout.write('CONNECTED'));` +
+    `s.on('error',()=>process.exit(1));setInterval(()=>{},1e9);`;
+  return new Promise((resolve, reject) => {
+    const child = spawn("node", ["-e", code], {
+      stdio: ["ignore", "pipe", "ignore"],
+      cwd: tmpdir(),
+    });
+    const timer = setTimeout(() => reject(new Error("client never connected")), 5000);
+    child.stdout!.on("data", (d: Buffer) => {
+      if (d.toString().includes("CONNECTED")) {
+        clearTimeout(timer);
+        resolve(child);
+      }
+    });
+    child.on("error", reject);
+  });
+}
+
+describe("freePort (in-process)", () => {
+  // Exercises the guard pipeline (alive-probe, describe, ghost-filter, plan,
+  // SIGTERM wait) inside this process — the subprocess tests above can't
+  // give coverage on these paths. Only the happy path runs here; the refusal
+  // path calls process.exit and stays subprocess-only.
+  it("frees a port held by this app's own process, without exiting", async () => {
+    const port = await getFreePort();
+    const decoy = await spawnDecoy(port); // ours: cwd = repo root
+    const logs: string[] = [];
+    try {
+      const { freePort } = await import("./dev.mjs");
+      await freePort(port, (m: string) => logs.push(m), {
+        appDir: process.cwd(),
+        takePort: false,
+      });
+      expect(logs.join("\n")).toMatch(/Freed port/i);
+      expect(await portOwners(port)).toEqual([]);
+    } finally {
+      decoy.kill("SIGKILL");
+    }
+  }, 15000);
+
+  it("is a no-op on an already-free port", async () => {
+    const port = await getFreePort();
+    const logs: string[] = [];
+    const { freePort } = await import("./dev.mjs");
+    await freePort(port, (m: string) => logs.push(m), { appDir: process.cwd() });
+    expect(logs.join("\n")).toMatch(/already free/i);
+  });
+});
+
+describe("dev.mjs frees a port that has attached clients", () => {
+  // Regression guard for the lsof over-match: `lsof -ti tcp:PORT` without
+  // -sTCP:LISTEN also returns CLIENTS connected to the port (e.g. a browser),
+  // which the guard would then refuse as foreign — breaking every restart
+  // with a tab open. Only the LISTENER may count as the port's holder.
+  it("kills our stale listener even while a foreign-cwd client is connected", async () => {
+    const port = await getFreePort();
+    const decoy = await spawnDecoy(port); // ours: cwd = repo root
+    const client = await spawnClient(port); // foreign cwd, ESTABLISHED
+    try {
+      const res = runDev(["--kill-only", "--no-open", "--port", String(port)]);
+      expect(res.status).toBe(0);
+      expect(await portOwners(port)).toEqual([]);
+    } finally {
+      decoy.kill("SIGKILL");
+      client.kill("SIGKILL");
+    }
+  }, 15000);
+});
+
+describe("dev.mjs refuses to kill foreign processes", () => {
+  it("a listener from OUTSIDE the app dir survives --kill-only (exit 3)", async () => {
+    const port = await getFreePort();
+    const decoy = await spawnDecoy(port, tmpdir());
+    try {
+      const res = runDev(["--kill-only", "--no-open", "--port", String(port)]);
+      expect(res.status).toBe(3);
+      expect(res.stderr).toMatch(/--take-port/);
+      // The foreign process is still alive and still holds the port.
+      expect((await portOwners(port)).length).toBeGreaterThan(0);
+    } finally {
+      decoy.kill("SIGKILL");
+    }
+  }, 15000);
+
+  it("--take-port kills the foreign listener anyway", async () => {
+    const port = await getFreePort();
+    const decoy = await spawnDecoy(port, tmpdir());
+    try {
+      const res = runDev([
+        "--kill-only",
+        "--no-open",
+        "--port",
+        String(port),
+        "--take-port",
+      ]);
+      expect(res.status).toBe(0);
+      expect(await portOwners(port)).toEqual([]);
+    } finally {
+      decoy.kill("SIGKILL");
+    }
   }, 15000);
 });

@@ -139,13 +139,16 @@ use`, or a stale server from a prior run answers.
 **Cause:** a previous `next dev` is still holding the port.
 
 **Fix:** always start via the skill's dev script — it **frees the port first**
-(SIGTERM, then SIGKILL any survivor) before spawning, scoped to that one port so
-it never touches unrelated projects:
+(SIGTERM, then SIGKILL any survivor) before spawning. It is scoped to that one
+port AND to this app's own processes: a holder it can't tie to this app (by
+working directory / command line) is refused with exit 3 and its identity, so
+it never kills an unrelated project's server:
 
 ```bash
-node skill/agent-face/scripts/dev.mjs                 # kill :3000, start, open browser
+node skill/agent-face/scripts/dev.mjs                 # free :3000, start, open browser
 node skill/agent-face/scripts/dev.mjs --port 4000     # use a different port
 node skill/agent-face/scripts/dev.mjs --kill-only     # just free the port, don't start
+node skill/agent-face/scripts/dev.mjs --take-port     # kill even a foreign holder
 ```
 
 **Check** what holds the port manually (macOS/Linux):
@@ -262,9 +265,12 @@ node skill/agent-face/scripts/dev.mjs           # free the port, start dev, open
 node skill/agent-face/scripts/deploy.mjs --target vercel   # or --target self-host
 ```
 
-Requirements: **Node 22+** and `npm` on `PATH`. Port-freeing in `dev.mjs` uses
-`lsof` (macOS/Linux); on Windows the kill step is skipped but the server still
-starts. If your harness passes a working directory that isn't the app root, `cd`
+Requirements: **Node 22+** and `npm` on `PATH`. Port-freeing in `dev.mjs`
+finds the holder via `lsof`, `/proc`, `ss`/`fuser`, or `netstat` and
+identifies it via `ps`+`lsof` (macOS/Linux, `/proc` in bare containers) or
+PowerShell/CIM (Windows). A holder that can't be tied to this app is refused
+with **exit 3** — pass `--take-port` to kill it anyway. If your harness passes
+a working directory that isn't the app root, `cd`
 into the scaffolded app first (the scripts resolve the app dir from the current
 directory, falling back to the packaged `assets/app-template`). Full harness
 matrix: [`portability.md`](portability.md).

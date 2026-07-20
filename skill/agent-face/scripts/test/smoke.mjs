@@ -15,8 +15,10 @@
 //   check-env.mjs — no keys => non-zero exit + crosses + no brain; a fake
 //                   ANTHROPIC_API_KEY => exit 0 + Anthropic selected; and the
 //                   secret VALUE is NEVER echoed (text or --json).
-//   dev.mjs       — the port-kill logic in isolation: a throwaway listener on a
-//                   real port is terminated by `dev --kill-only` (NO next dev).
+//   dev.mjs       — the port-kill logic in isolation (NO next dev): a listener
+//                   working INSIDE the app dir is terminated by `dev
+//                   --kill-only`; a FOREIGN listener is refused with exit 3
+//                   and survives, unless --take-port.
 //   deploy.mjs    — preflight fails fast on a dir missing app files; with the
 //                   vercel CLI absent (VERCEL_BIN override) the install hint path
 //                   is taken instead of any build/network step.
@@ -230,24 +232,32 @@ function testCheckEnv() {
   check("check-env --json never echoes the secret value", !r.out.includes(SECRET));
 }
 
+const LISTENER_CODE =
+  "const net=require('net');" +
+  "net.createServer(c=>c.destroy()).listen(Number(process.env.SMOKE_PORT),'127.0.0.1');" +
+  "setInterval(()=>{},1e9);";
+
 async function testDevKillLogic() {
   console.log("dev.mjs (port-kill logic in isolation)");
+
+  // A dedicated app dir (bare package.json) pins what "this app" means, so
+  // the test is deterministic no matter what cwd smoke.mjs itself runs from:
+  // dev.mjs resolves the app dir from ITS cwd, and the listener's cwd decides
+  // ours-vs-foreign.
+  const devAppDir = mkTmp("smoke-dev-appdir-");
+  writeFileSync(
+    join(devAppDir, "package.json"),
+    JSON.stringify({ name: "smoke-dev", private: true }),
+  );
+
   const port = await getFreePort();
 
-  // Hold the port from a separate node process (stays alive on a timer).
-  listenerChild = spawn(
-    process.execPath,
-    [
-      "-e",
-      "const net=require('net');" +
-        "net.createServer(c=>c.destroy()).listen(Number(process.env.SMOKE_PORT),'127.0.0.1');" +
-        "setInterval(()=>{},1e9);",
-    ],
-    {
-      env: { ...process.env, SMOKE_PORT: String(port) },
-      stdio: "ignore",
-    },
-  );
+  // Hold the port from a separate node process working INSIDE the app dir.
+  listenerChild = spawn(process.execPath, ["-e", LISTENER_CODE], {
+    env: { ...process.env, SMOKE_PORT: String(port) },
+    stdio: "ignore",
+    cwd: devAppDir,
+  });
   listenerChild.on("exit", () => {
     listenerExited = true;
   });
@@ -256,7 +266,7 @@ async function testDevKillLogic() {
   check("throwaway server is listening on the port", listening, `port ${port}`);
 
   // `--kill-only` frees the port WITHOUT starting a real dev server.
-  const r = runNode([DEV, "--kill-only", "--port", String(port)]);
+  const r = runNode([DEV, "--kill-only", "--port", String(port)], { cwd: devAppDir });
   check("dev --kill-only exits 0", r.status === 0, `exit ${r.status}`);
   check(
     "dev reports it freed the port",
@@ -270,6 +280,41 @@ async function testDevKillLogic() {
   const exited = await waitUntil(() => listenerExited, 5000);
   check("the prior listener process was terminated", exited);
   killListener();
+
+  // A FOREIGN listener (working dir OUTSIDE the app) must be refused, not
+  // killed — and --take-port must override the refusal.
+  const foreignPort = await getFreePort();
+  const foreignHome = mkTmp("smoke-dev-foreign-");
+  const foreignChild = spawn(process.execPath, ["-e", LISTENER_CODE], {
+    env: { ...process.env, SMOKE_PORT: String(foreignPort) },
+    stdio: "ignore",
+    cwd: foreignHome,
+  });
+  try {
+    const up = await waitUntil(() => canConnect(foreignPort), 5000);
+    check("foreign listener is listening", up, `port ${foreignPort}`);
+
+    const rf = runNode([DEV, "--kill-only", "--port", String(foreignPort)], {
+      cwd: devAppDir,
+    });
+    check("dev refuses a foreign holder with exit 3", rf.status === 3, `exit ${rf.status}`);
+    check("the refusal names --take-port", /--take-port/.test(rf.out));
+    check("the foreign holder survives", await canConnect(foreignPort));
+
+    const rt = runNode(
+      [DEV, "--kill-only", "--port", String(foreignPort), "--take-port"],
+      { cwd: devAppDir },
+    );
+    check("dev --take-port exits 0", rt.status === 0, `exit ${rt.status}`);
+    const gone = await waitUntil(async () => !(await canConnect(foreignPort)), 5000);
+    check("dev --take-port kills the foreign holder", gone, `port ${foreignPort}`);
+  } finally {
+    try {
+      foreignChild.kill("SIGKILL");
+    } catch {
+      // already gone
+    }
+  }
 }
 
 function testDeployPreflight(completeAppDir) {

@@ -56,7 +56,7 @@ extracted standalone.
 | Script | One-line purpose | Runs standalone? |
 |---|---|---|
 | `scripts/scaffold.mjs` | Copy the app template into a target directory | ✅ `node scaffold.mjs ./agent-face-app` |
-| `scripts/dev.mjs` | Free the dev port (SIGTERM→SIGKILL any prior server), start dev, open the browser | ✅ `node dev.mjs [--port N] [--no-open]` |
+| `scripts/dev.mjs` | Free the dev port (SIGTERM→SIGKILL a prior server of THIS app; foreign holders are refused unless `--take-port`), start dev, open the browser | ✅ `node dev.mjs [--port N] [--no-open] [--take-port]` |
 | `scripts/check-env.mjs` | Report which brains / STT / TTS are configured (secrets masked) | ✅ `node check-env.mjs [--json]` |
 | `scripts/deploy.mjs` | Deploy to Vercel or build the self-host image | ✅ `node deploy.mjs --target vercel|self-host` |
 

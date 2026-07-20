@@ -194,6 +194,18 @@ describe("check-env.mjs CLI", () => {
     expect(res.stdout).not.toContain("sk-ant-");
   });
 
+  // The bridge has no per-request model, and the summary used to interpolate
+  // that absence as a literal "(null)". It must show the kind instead.
+  it("agent-bridge selected: summary shows the kind, never (null)", () => {
+    const res = run({
+      AGENT_BRIDGE_KIND: "claude-code",
+      AGENT_BRIDGE_URL: "http://127.0.0.1:8787",
+    });
+    expect(res.status).toBe(0);
+    expect(res.stdout).toContain("Selected brain: Agent bridge (kind: claude-code)");
+    expect(res.stdout).not.toContain("(null)");
+  });
+
   it("--json emits a secret-free machine-readable report", () => {
     const secret = "gsk-SECRET-do-not-leak";
     const res = run({ GROQ_API_KEY: secret }, ["--json"]);

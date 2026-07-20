@@ -6,20 +6,23 @@
 // survivor — so a stale `next dev` from a prior run can never collide with the
 // new one. Only after the port is confirmed free does it spawn `npm run dev`.
 //
-//   node skill/agent-face/scripts/dev.mjs              # kill :3000, start dev, open browser
+//   node skill/agent-face/scripts/dev.mjs              # free :3000, start dev, open browser
 //   node skill/agent-face/scripts/dev.mjs --port 4000  # use a different port
 //   node skill/agent-face/scripts/dev.mjs --no-open    # don't open a browser
 //   node skill/agent-face/scripts/dev.mjs --kill-only  # just free the port, don't start
+//   node skill/agent-face/scripts/dev.mjs --take-port  # kill even a foreign holder
 //   node skill/agent-face/scripts/dev.mjs --help
 //
 // The app dir is the current directory when it holds a package.json (the usual
 // scaffolded-app case), else the packaged assets/app-template resolved RELATIVE
 // TO THIS SCRIPT, so it also works when the skill is extracted standalone.
 //
-// Port freeing is deliberately PORT-SCOPED (lsof -ti tcp:PORT) rather than a
-// broad `pkill next dev`: killing by process name would also nuke unrelated
-// projects' dev servers on the same machine. We only stop whatever holds THIS
-// port.
+// Port freeing is PORT-SCOPED (never a broad `pkill next dev`) and, since the
+// portguard change, IDENTITY-SCOPED too: only processes portguard.mjs can tie
+// to THIS app (cwd inside the app dir, or a command line naming it) are
+// auto-killed. Anything else holding the port makes this script refuse with
+// exit 3 and the holder's identity — pass --port <n> to run elsewhere, or
+// --take-port to kill the foreign process anyway.
 //
 // No external deps, no harness-specific tooling — plain Node ESM +
 // node:child_process/node:net/node:fs so any harness on macOS/Linux/Windows
@@ -31,6 +34,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { spawn, spawnSync } from "node:child_process";
 import net from "node:net";
+import { describePid, planPortAction } from "./portguard.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const DEFAULT_PORT = 3000;
@@ -46,11 +50,15 @@ Options:
   --port <n>        Dev port to free + serve on (default: ${DEFAULT_PORT}).
   --no-open         Don't open a browser once the server is listening.
   --kill-only       Free the port and exit (don't start the dev server).
+  --take-port       Kill the port's holder even when it is NOT this app's
+                    own process (default: refuse and exit 3).
   --help, -h        Show this help.
 
 Behavior:
-  1. ALWAYS kills any process already listening on the port (SIGTERM, then
-     SIGKILL if it survives) so a stale dev server can't collide.
+  1. Frees the port first: kills a previous server OF THIS APP (identified by
+     its working directory / command line) with SIGTERM, then SIGKILL if it
+     survives. A foreign process holding the port is refused (exit 3) with
+     its identity printed — use --port <n> or --take-port.
   2. Spawns \`npm run dev\` in the app dir (the current dir if it has a
      package.json, else the packaged app-template).
   3. When the server is listening, opens http://localhost:<port> (skipped in
@@ -63,6 +71,7 @@ export function parseArgs(argv) {
     port: DEFAULT_PORT,
     open: true,
     killOnly: false,
+    takePort: false,
     help: false,
   };
   for (let i = 0; i < argv.length; i++) {
@@ -70,6 +79,7 @@ export function parseArgs(argv) {
     if (arg === "--help" || arg === "-h") opts.help = true;
     else if (arg === "--no-open") opts.open = false;
     else if (arg === "--kill-only") opts.killOnly = true;
+    else if (arg === "--take-port") opts.takePort = true;
     else if (arg === "--port" || arg === "-p") {
       const val = argv[++i];
       opts.port = normalizePort(val);
@@ -197,8 +207,11 @@ function findPidsViaProc(port) {
 
 export function findPidsOnPort(port) {
   // 1. lsof — authoritative where present. Exits 1 with empty stdout when
-  //    nothing matches, which is the genuine "port is free" case.
-  const lsofOut = runCapture("lsof", ["-ti", `tcp:${port}`]);
+  //    nothing matches, which is the genuine "port is free" case. LISTEN-
+  //    scoped: without -sTCP:LISTEN, lsof also matches CLIENTS connected to
+  //    the port (a browser tab on the dev server), and the port guard would
+  //    refuse the whole kill because the browser is a foreign process.
+  const lsofOut = runCapture("lsof", ["-ti", `tcp:${port}`, "-sTCP:LISTEN"]);
   if (lsofOut !== null) {
     return cleanPids(lsofOut.split("\n").map((s) => Number(s.trim())));
   }
@@ -264,25 +277,93 @@ async function waitForPortClear(port, timeoutMs) {
   return pids;
 }
 
-// The load-bearing step: guarantee the port is free before we start.
-export async function freePort(port, log = console.error) {
-  const initial = findPidsOnPort(port);
+// The load-bearing step: guarantee the port is free before we start — but
+// only auto-kill processes portguard can tie to THIS app. A foreign holder
+// (another project's server) is refused with exit 3 unless takePort is set.
+export async function freePort(port, log = console.error, guard = {}) {
+  const { appDir = process.cwd(), takePort = false } = guard;
+  let initial = findPidsOnPort(port);
   if (initial.length === 0) {
     log(`✓ Port ${port} is already free.`);
     return;
   }
+
+  // A PID can exit between the port scan and here; a vanished one must not
+  // count as an unidentifiable foreign holder (spurious refusal). EPERM means
+  // alive-but-not-ours-to-signal — keep it so the guard can refuse it.
+  initial = initial.filter((pid) => {
+    try {
+      process.kill(pid, 0);
+      return true;
+    } catch (err) {
+      return err?.code === "EPERM";
+    }
+  });
+  if (initial.length === 0) {
+    await waitForPortClear(port, 1000);
+    log(`✓ Port ${port} is already free.`);
+    return;
+  }
+
+  let infos = initial.map((pid) => describePid(pid));
+  // A pid that died WHILE we were describing it reads as all-nulls (seen live:
+  // --stop scanning the bridge port mid-teardown). Re-probe and drop ghosts
+  // rather than refusing a process that no longer exists.
+  infos = infos.filter((info) => {
+    if (info.command || info.cwd) return true;
+    try {
+      process.kill(info.pid, 0);
+      return true;
+    } catch (err) {
+      return err?.code === "EPERM";
+    }
+  });
+  if (infos.length === 0) {
+    await waitForPortClear(port, 1000);
+    log(`✓ Port ${port} is already free.`);
+    return;
+  }
+
+  const plan = planPortAction(infos, appDir, { take: takePort });
+  if (plan.refuse.length) {
+    log(`✗ Port ${port} is held by process(es) that don't look like this app's:`);
+    for (const r of plan.refuse) {
+      const cmd = r.command ? r.command.slice(0, 120) : "(unidentified process)";
+      log(`    PID ${r.pid} — ${cmd}${r.cwd ? `  (cwd: ${r.cwd})` : ""}`);
+    }
+    log(
+      `  Refusing to kill them. Use --port <n> to run on another port, ` +
+        `or --take-port to kill them anyway.`,
+    );
+    process.exit(3);
+  }
+
   log(
-    `Port ${port} is held by PID(s) ${initial.join(", ")} — stopping them first…`,
+    `Port ${port} is held by PID(s) ${plan.kill.join(", ")}${
+      takePort ? "" : " (this app's own)"
+    } — stopping them first…`,
   );
-  for (const pid of initial) killPid(pid, "SIGTERM");
+  for (const pid of plan.kill) killPid(pid, "SIGTERM");
 
   let remaining = await waitForPortClear(port, 2500);
-  if (remaining.length) {
-    log(`Still alive after SIGTERM — sending SIGKILL to ${remaining.join(", ")}…`);
-    for (const pid of remaining) killPid(pid, "SIGKILL");
+  // Escalate ONLY on the pids we classified and SIGTERMed. A new process that
+  // grabbed the port mid-free was never classified — it gets the refusal
+  // treatment, never a blind SIGKILL.
+  const escalate = remaining.filter((pid) => plan.kill.includes(pid));
+  if (escalate.length) {
+    log(`Still alive after SIGTERM — sending SIGKILL to ${escalate.join(", ")}…`);
+    for (const pid of escalate) killPid(pid, "SIGKILL");
     remaining = await waitForPortClear(port, 2500);
   }
 
+  const interlopers = remaining.filter((pid) => !plan.kill.includes(pid));
+  if (interlopers.length) {
+    log(
+      `✗ Port ${port} was re-taken mid-free by PID(s) ${interlopers.join(", ")} — ` +
+        `not killing an unclassified newcomer. Re-run, use --port <n>, or --take-port.`,
+    );
+    process.exit(3);
+  }
   if (remaining.length) {
     log(
       `✗ Could not free port ${port}; PID(s) still listening: ${remaining.join(", ")}. ` +
@@ -347,12 +428,17 @@ async function main() {
   }
 
   // 1) HARD REQUIREMENT — always free the port before doing anything else.
-  await freePort(opts.port);
+  //    The app dir is resolved first so the guard knows whose processes are
+  //    fair game; anything else on the port is refused unless --take-port.
+  const appDir = resolveAppDir();
+  await freePort(opts.port, console.error, {
+    appDir,
+    takePort: opts.takePort,
+  });
 
   if (opts.killOnly) return;
 
   // 2) Start the dev server in the resolved app dir.
-  const appDir = resolveAppDir();
   console.error(`Starting dev server in ${appDir} on port ${opts.port}…\n`);
 
   const child = spawn("npm", ["run", "dev", "--", "-p", String(opts.port)], {

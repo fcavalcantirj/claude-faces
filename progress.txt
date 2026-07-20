@@ -2802,3 +2802,35 @@ REPORTED NOT FIXED (Felipe's call): check-env prints "Selected brain: Agent brid
 dev.mjs where SKILL.md's from-nothing path says start.mjs; the port-kill-by-default design
 itself (warn-only vs refuse-on-foreign-process).
 Verify (all RUN, $? captured directly): npm run verify EXIT=0 (6/6) after the doc edits.
+
+2026-07-19: [skill] WHOLE-9-YARDS round (Felipe: "fix all... make it perfect") — the three
+reported-not-fixed items PLUS everything a 25-agent adversarial review then found. NEW
+skill/agent-face/scripts/portguard.mjs: port freeing is now IDENTITY-SCOPED — an occupant is
+"ours" only if its cwd is inside the app dir or its command line names it AT A PATH BOUNDARY
+(claude-faces-v2 no longer matches claude-faces); foreign/unknown holders are REFUSED with
+exit 3 + identity printed; new --take-port (dev.mjs + start.mjs, forwarded) overrides. The
+review panel (4 lenses -> 21 confirmed findings) caught what one pass could not: lsof
+over-match (client sockets counted as holders — a browser tab would have blocked every
+restart; now -sTCP:LISTEN), SIGKILL escalation now scoped to classified pids (a newcomer
+grabbing the port mid-free is refused, never blind-killed), --stop null-status masking
+([null,3].find(s=>s!==0) returned null -> exit 0; killPort now normalizes error/null->1),
+scaffold path quoting, win32 identification via PowerShell/CIM, and doc drift in SIX places
+(SKILL.md table, README, CONTRIBUTING, portability/evaluations/troubleshooting) + the
+personal ~/.claude/skills/agent-faces runbook. A LIVE --stop then caught the ghost-PID race
+the panel predicted (bridge mid-death scanned as "unknown" -> spurious refusal): all-null
+describes are re-probed and dropped. check-env "(null)" -> "(kind: claude-code)"; scaffold
+next-steps print the real quoted start.mjs path and lead with start.mjs.
+ALSO FIXED, pre-existing: verify:linux was RED before this round (functions coverage 82.99%
+vs 83% on Linux only; proven by stash + clean-HEAD run; my earlier background wrapper's echo
+masked the exit code — the brief's own $?-lie trap, caught). Fixed honestly with three real
+lib tests (emotion-machine setEmotion, lipsync reset + getEstimatedFeatures), not by touching
+the ratchet; sync-template re-run.
+Verify (all RUN, $? captured directly): portguard RED->GREEN (5 fail -> pass) then round-2
+RED->GREEN (sibling-dir + lsof-client tests failed pre-fix); npx vitest scripts 73/73;
+npm test EXIT=0 (569 -> 585 incl. 3 new lib tests + e2e --stop/bridge-refusal/in-process
+freePort); npm run verify EXIT=0 (6/6); npm run verify:linux EXIT=0 (was RED at HEAD);
+LIVE: foreign decoy on 3100 -> start.mjs exit 3, decoy survives, bridge tears down;
+--take-port -> decoy killed, healthz ok, real chat turn http=200; 4x start/stop cycles
+stop_exit=0 ports empty every round; .env.local sha256 unchanged; :3000 untouched.
+UAT: [skill] Windows-side classification (PowerShell/CIM path) implemented to spec but
+never executed on a real Windows box.
