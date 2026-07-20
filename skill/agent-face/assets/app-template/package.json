@@ -1,6 +1,6 @@
 {
   "name": "agent-faces",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "Agent Faces — give your AI agent a talking, lip-syncing 12-emotion particle face. Speak, it answers out loud.",
   "license": "MIT",

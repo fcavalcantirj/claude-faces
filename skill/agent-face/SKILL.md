@@ -11,7 +11,7 @@ description: >-
   voice", "deploy a face UI", "lip-sync face", "voice face for my agent", and
   "put a face on Hermes/openclaw". The brain can be a fresh hosted API OR your
   own already-running agent.
-version: 0.1.0
+version: 0.2.0
 license: MIT
 metadata:
   brand: Agent Faces
