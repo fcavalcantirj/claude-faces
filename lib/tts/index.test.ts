@@ -47,6 +47,7 @@ class FakeAudioEl {
   paused = true
   onended: (() => void) | null = null
   onerror: (() => void) | null = null
+  onplaying: (() => void) | null = null
   playCount = 0
   pauseCount = 0
   async play() {
@@ -56,6 +57,10 @@ class FakeAudioEl {
   pause() {
     this.pauseCount += 1
     this.paused = true
+  }
+  /** Test helper: simulate real audio beginning ('playing' event). */
+  startPlaying() {
+    this.onplaying?.()
   }
   /** Test helper: simulate the clip finishing. */
   end() {
@@ -67,12 +72,18 @@ class FakeWebSpeech {
   spoken: string[] = []
   cancelCount = 0
   disposeCount = 0
+  private onStart?: () => void
   private onEnd?: () => void
-  constructor(cb: { onEnd?: () => void }) {
+  constructor(cb: { onStart?: () => void; onEnd?: () => void }) {
+    this.onStart = cb.onStart
     this.onEnd = cb.onEnd
   }
   speak(text: string) {
     this.spoken.push(text)
+  }
+  /** Test helper: fire the audible start of the current utterance (u.onstart). */
+  startLatest() {
+    this.onStart?.()
   }
   /** Test helper: fire the end of the most recently spoken utterance. */
   finishLatest() {
@@ -148,6 +159,7 @@ function makeSetup(over: Partial<TtsRouterOptions> = {}) {
     onError: vi.fn(),
     onMouthSource: vi.fn(),
     onEngine: vi.fn(),
+    onFirstAudible: vi.fn(),
   }
 
   const router = createTtsRouter({ mouthRef, ...over }, callbacks, deps)
@@ -356,6 +368,58 @@ describe('TtsRouter — kokoro not installed', () => {
 })
 
 // --- module-level default router -------------------------------------------
+
+describe('TtsRouter — first-audible instant (onFirstAudible)', () => {
+  it('web-speech: fires once per turn at u.onstart, re-fires on the next turn', async () => {
+    const s = makeSetup()
+    s.router.speak('One. Two.')
+    // Queued + markStarted happened, but nothing is AUDIBLE yet.
+    expect(s.callbacks.onFirstAudible).not.toHaveBeenCalled()
+
+    s.webSpeech!.startLatest() // real audio begins
+    expect(s.callbacks.onFirstAudible).toHaveBeenCalledTimes(1)
+
+    s.webSpeech!.finishLatest() // advance to sentence two
+    s.webSpeech!.startLatest() // same turn — must NOT re-fire
+    expect(s.callbacks.onFirstAudible).toHaveBeenCalledTimes(1)
+    s.webSpeech!.finishLatest() // queue drains, turn ends
+    expect(s.callbacks.onEnd).toHaveBeenCalledTimes(1)
+
+    s.router.speak('Next turn.')
+    s.webSpeech!.startLatest()
+    expect(s.callbacks.onFirstAudible).toHaveBeenCalledTimes(2)
+  })
+
+  it("clip path: fires on the element's 'playing' event, once per turn", async () => {
+    const s = makeSetup()
+    s.router.speak('First clip. Second clip.', { engine: 'openai' })
+    await flush()
+    expect(s.callbacks.onFirstAudible).not.toHaveBeenCalled()
+
+    s.audioEls[0].startPlaying()
+    expect(s.callbacks.onFirstAudible).toHaveBeenCalledTimes(1)
+
+    s.audioEls[0].end()
+    await flush()
+    s.audioEls[1].startPlaying() // same turn — no re-fire
+    expect(s.callbacks.onFirstAudible).toHaveBeenCalledTimes(1)
+  })
+
+  it('stop() before audio starts: never fires, and the NEXT turn fires cleanly', async () => {
+    const s = makeSetup()
+    s.router.speak('Interrupted.', { engine: 'openai' })
+    await flush()
+    const stale = s.audioEls[0]
+    s.router.stop()
+    stale.startPlaying() // late 'playing' from the torn-down element
+    expect(s.callbacks.onFirstAudible).not.toHaveBeenCalled()
+
+    s.router.speak('Fresh turn.', { engine: 'openai' })
+    await flush()
+    s.audioEls[1].startPlaying()
+    expect(s.callbacks.onFirstAudible).toHaveBeenCalledTimes(1)
+  })
+})
 
 describe('module-level speak/stop', () => {
   it('routes global speak()/stop() to the configured default router', async () => {

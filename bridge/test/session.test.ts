@@ -281,3 +281,54 @@ describe("createSession.runTurn", () => {
     expect(interrupts).toContain(0);
   });
 });
+
+describe("turn timing (onTiming)", () => {
+  const TOOL: Msg = { type: "assistant", message: { content: [{ type: "tool_use" }] } };
+
+  it("emits one record per attempt with ordered marks and resumed=false on a fresh turn", async () => {
+    const { queryFn } = scripted([OK_TURN("sess-A")]);
+    let t = 0;
+    const timings: Array<Record<string, unknown>> = [];
+    const s = createSession({
+      queryFn,
+      now: () => (t += 100), // every clock read advances 100ms
+      onTiming: (rec: Record<string, unknown>) => timings.push(rec),
+    });
+    await s.runTurn({ ...baseTurn, onDelta: () => {} });
+
+    expect(timings).toHaveLength(1);
+    const rec = timings[0] as Record<string, number | boolean | string>;
+    expect(rec).toMatchObject({ v: 1, kind: "bridge", resumed: false, ok: true, ackSynthetic: false });
+    expect(rec.initMs as number).toBeGreaterThan(0);
+    expect(rec.firstDeltaMs as number).toBeGreaterThanOrEqual(rec.initMs as number);
+    expect(rec.totalMs as number).toBeGreaterThanOrEqual(rec.firstDeltaMs as number);
+  });
+
+  it("a stale-resume retry emits two records: the failed resumed attempt, then the fresh one", async () => {
+    const { queryFn } = scripted([
+      OK_TURN("sess-A"),
+      { messages: [INIT("sess-A")], throwAfter: 1 }, // resumed attempt dies mid-stream
+      OK_TURN("sess-B", "recovered"),
+    ]);
+    const timings: Array<Record<string, unknown>> = [];
+    const s = createSession({ queryFn, onTiming: (rec: Record<string, unknown>) => timings.push(rec) });
+    await s.runTurn({ ...baseTurn, onDelta: () => {} });
+    await s.runTurn({ ...baseTurn, hasAssistantTurns: true, onDelta: () => {} });
+
+    expect(timings).toHaveLength(3);
+    expect(timings[1]).toMatchObject({ resumed: true, ok: false });
+    expect(timings[2]).toMatchObject({ resumed: false, ok: true });
+  });
+
+  it("flags a first delta that is the synthetic tool-work acknowledgment", async () => {
+    const { queryFn } = scripted([
+      { messages: [INIT("sess-A"), TOOL, DELTA("done."), RESULT("sess-A", "done.")] },
+    ]);
+    const timings: Array<Record<string, unknown>> = [];
+    const s = createSession({ queryFn, onTiming: (rec: Record<string, unknown>) => timings.push(rec) });
+    await s.runTurn({ ...baseTurn, onDelta: () => {} });
+
+    expect(timings).toHaveLength(1);
+    expect(timings[0]).toMatchObject({ ackSynthetic: true, ok: true });
+  });
+});

@@ -55,6 +55,8 @@ const DEFAULT_ACK_PHRASES = [
  *   initTimeoutMs?: number,
  *   turnTimeoutMs?: number,
  *   ackPhrases?: string[],
+ *   now?: () => number,
+ *   onTiming?: (rec: Record<string, unknown>) => void,
  * }} config
  */
 export function createSession({
@@ -65,6 +67,8 @@ export function createSession({
   initTimeoutMs = 60_000,
   turnTimeoutMs = 600_000,
   ackPhrases = DEFAULT_ACK_PHRASES,
+  now = Date.now,
+  onTiming = null,
 }) {
   let storedSessionId = null;
 
@@ -81,6 +85,37 @@ export function createSession({
     if (model) options.model = model;
     if (cwd) options.cwd = cwd;
     if (resumeId) options.resume = resumeId;
+
+    // Attempt-local timing: t0 sits BEFORE the query() call so the mark set
+    // captures the whole cost this bridge adds — CLI subprocess spawn + resume
+    // + model TTFT — per attempt. Emitted once via onTiming (ok=false when the
+    // attempt threw); firstDelta may be the synthetic ack (flagged).
+    const t0 = now();
+    let initMs = null;
+    let firstDeltaMs = null;
+    let ackFirst = false;
+    let timingSent = false;
+    const emitDelta = (text, synthetic = false) => {
+      if (firstDeltaMs === null) {
+        firstDeltaMs = now() - t0;
+        ackFirst = synthetic;
+      }
+      onDelta?.(text);
+    };
+    const emitTiming = (ok) => {
+      if (timingSent || !onTiming) return;
+      timingSent = true;
+      onTiming({
+        v: 1,
+        kind: "bridge",
+        resumed: Boolean(resumeId),
+        initMs: initMs ?? undefined,
+        firstDeltaMs: firstDeltaMs ?? undefined,
+        totalMs: now() - t0,
+        ackSynthetic: ackFirst,
+        ok,
+      });
+    };
 
     // Handle BEFORE any await: a failure during startup must still leave
     // something dispose() can reap.
@@ -117,13 +152,13 @@ export function createSession({
     let sawDelta = false;
     let lastAssistantText = null;
     let resultEvent = null;
-    const startedAt = Date.now();
+    const startedAt = now();
 
     try {
       let gotFirst = false;
       for (;;) {
         const ceiling = gotFirst ? turnTimeoutMs : Math.min(initTimeoutMs, turnTimeoutMs);
-        const budget = ceiling - (Date.now() - startedAt);
+        const budget = ceiling - (now() - startedAt);
         if (budget <= 0) throw new BridgeTimeoutError(ceiling);
         let timer = null;
         const timeout = new Promise((_, reject) => {
@@ -140,10 +175,12 @@ export function createSession({
         if (step.done) break;
         gotFirst = true;
         for (const ev of projectMessage(step.value)) {
-          if (ev.type === "session") storedSessionId = ev.sessionId;
-          else if (ev.type === "delta") {
+          if (ev.type === "session") {
+            storedSessionId = ev.sessionId;
+            if (initMs === null) initMs = now() - t0;
+          } else if (ev.type === "delta") {
             sawDelta = true;
-            onDelta?.(ev.text);
+            emitDelta(ev.text);
           } else if (ev.type === "tool_activity") {
             // Silent tool work ahead: speak ONE short acknowledgment — unless
             // the agent already said something itself (turn-scoped, so a
@@ -151,7 +188,7 @@ export function createSession({
             if (!sawDelta && turnState && !turnState.ackSent) {
               turnState.ackSent = true;
               const phrase = ackPhrases[Math.floor(Math.random() * ackPhrases.length)];
-              onDelta?.(`${phrase} `);
+              emitDelta(`${phrase} `, true);
             }
           } else if (ev.type === "assistant_text") lastAssistantText = ev.text;
           else if (ev.type === "result") resultEvent = ev;
@@ -159,6 +196,7 @@ export function createSession({
         if (resultEvent) break;
       }
     } catch (err) {
+      emitTiming(false);
       dispose();
       throw err;
     } finally {
@@ -166,11 +204,15 @@ export function createSession({
     }
     dispose();
 
-    if (!resultEvent) throw new Error("The SDK stream ended without a result message.");
+    if (!resultEvent) {
+      emitTiming(false);
+      throw new Error("The SDK stream ended without a result message.");
+    }
     const text = resultEvent.text ?? lastAssistantText ?? "";
     // Streaming can be unavailable (or filtered); the reply still reaches the
     // client as one delta rather than silently vanishing.
-    if (!sawDelta && text) onDelta?.(text);
+    if (!sawDelta && text) emitDelta(text);
+    emitTiming(true);
     return {
       text,
       usage: resultEvent.usage,

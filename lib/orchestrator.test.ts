@@ -51,6 +51,7 @@ function makeFakeChat() {
   return {
     runChat,
     token: (t: string) => cbs?.onToken?.(t, t),
+    firstToken: () => cbs?.onFirstToken?.(),
     sentence: (s: string) => cbs?.onSentence?.(s),
     finish: (result: Partial<ChatResult>) => {
       const full: ChatResult = {
@@ -354,6 +355,133 @@ describe('conversation orchestrator', () => {
     expect(skin.calls.mouth).toBeGreaterThan(0)
     orch.handleSpeechEnd()
     expect(orch.isSpeaking()).toBe(false)
+  })
+
+  it('records the full stage timeline for a vad turn with an injected clock', async () => {
+    const chat = makeFakeChat()
+    let t = 0
+    const completed: unknown[] = []
+    const orch = createOrchestrator({
+      conversation,
+      emotion,
+      tts: makeFakeTts().tts,
+      transcribe: async () => {
+        t += 900 // STT wall time
+        return { text: 'hi there', engine: 'hosted', latencyMs: 640 }
+      },
+      runChat: chat.runChat,
+      now: () => t,
+      vadTailMs: 1400,
+      onTurnComplete: (timings) => completed.push(timings),
+    })
+
+    await orch.submitAudio(new Blob(['x']), { source: 'vad' })
+    t += 7000
+    chat.firstToken()
+    t += 400
+    chat.sentence('Hello there.')
+    t += 20
+    orch.handleSpeechStart()
+    t += 380
+    orch.handleFirstAudible()
+    chat.finish({ text: 'Hello there.' })
+    orch.handleSpeechEnd()
+
+    const log = orch.getTurnLog()
+    expect(log).toHaveLength(1)
+    expect(log[0]).toMatchObject({
+      input: 'vad',
+      vadTailMs: 1400,
+      sttMs: 900,
+      sttEngine: 'hosted',
+      sttUpstreamMs: 640,
+      ttftMs: 7900,
+      firstSentenceMs: 8300,
+      ttsStartMs: 8320,
+      firstAudibleMs: 8700,
+      ttfwMs: 8700 + 1400,
+      outcome: 'complete',
+    })
+    expect(completed).toHaveLength(1)
+    expect(orch.getStatus().latency).toMatchObject({ ttfwMs: 8700 + 1400 })
+  })
+
+  it('a typed turn records no stt/vad fields and ttfw equals firstAudible', () => {
+    const chat = makeFakeChat()
+    let t = 0
+    const orch = createOrchestrator({
+      conversation,
+      emotion,
+      tts: makeFakeTts().tts,
+      transcribe: async () => ({ text: 'unused', engine: 'browser' }),
+      runChat: chat.runChat,
+      now: () => t,
+      vadTailMs: 1400,
+    })
+    orch.submitText('hello')
+    t += 3000
+    chat.firstToken()
+    t += 500
+    orch.handleSpeechStart()
+    orch.handleFirstAudible()
+    orch.handleSpeechEnd()
+
+    const rec = orch.getTurnLog()[0]
+    expect(rec.input).toBe('typed')
+    expect(rec.vadTailMs).toBeUndefined()
+    expect(rec.sttMs).toBeUndefined()
+    expect(rec.ttfwMs).toBe(3500)
+  })
+
+  it('wiring onFirstToken is timing-only: phase and emotion do not change', () => {
+    const chat = makeFakeChat()
+    const orch = createOrchestrator({
+      conversation,
+      emotion,
+      tts: makeFakeTts().tts,
+      transcribe: async () => ({ text: 'unused', engine: 'browser' }),
+      runChat: chat.runChat,
+      now: () => 0,
+    })
+    orch.submitText('hello')
+    expect(orch.getPhase()).toBe('waiting')
+    const emotionBefore = emotion.getState()
+    chat.firstToken()
+    // The SPEAKING handoff still waits for real audio (TTS onStart).
+    expect(orch.getPhase()).toBe('waiting')
+    expect(emotion.getState()).toBe(emotionBefore)
+  })
+
+  it('a barge-in finalizes the in-flight record as aborted and starts a fresh one', () => {
+    const chat = makeFakeChat()
+    const orch = createOrchestrator({
+      conversation,
+      emotion,
+      tts: makeFakeTts().tts,
+      transcribe: async () => ({ text: 'unused', engine: 'browser' }),
+      runChat: chat.runChat,
+      now: () => 0,
+    })
+    orch.submitText('first')
+    orch.submitText('second') // barge-in
+    const log = orch.getTurnLog()
+    expect(log).toHaveLength(1)
+    expect(log[0].outcome).toBe('aborted')
+  })
+
+  it('a silent transcript ends the record as empty; status.latency stays unset mid-turn', async () => {
+    const chat = makeFakeChat()
+    const orch = createOrchestrator({
+      conversation,
+      emotion,
+      tts: makeFakeTts().tts,
+      transcribe: async () => ({ text: '   ', engine: 'browser' }),
+      runChat: chat.runChat,
+      now: () => 0,
+    })
+    await orch.submitAudio(new Blob(['x']), { source: 'ptt' })
+    expect(orch.getTurnLog()[0].outcome).toBe('empty')
+    expect(orch.getStatus().latency).toBeUndefined()
   })
 
   it('reportMicError surfaces the RecorderError message without entering the error phase', () => {

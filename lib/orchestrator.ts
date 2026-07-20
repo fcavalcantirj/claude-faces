@@ -48,6 +48,11 @@ import type { MouthState } from '@/components/agent-face'
 // Enforced by tests/client-boundary.test.ts.
 import { AdapterError } from '@/lib/providers/types'
 import { RecorderError } from '@/lib/audio/recorder'
+import {
+  TurnTimingsRecorder,
+  type TurnOutcome,
+  type TurnTimings,
+} from '@/lib/latency'
 
 /** The TTS surface the orchestrator drives (satisfied by `TtsRouter`). */
 export interface OrchestratorTts {
@@ -83,6 +88,8 @@ export interface OrchestratorStatus {
   lastTranscript?: string
   /** A user-facing error message from the most recent failed step. */
   error?: string
+  /** Latest turn timings (set at first-audible, finalized on completion). */
+  latency?: TurnTimings
 }
 
 export interface OrchestratorDeps {
@@ -113,6 +120,12 @@ export interface OrchestratorDeps {
   caf?: (id: number) => void
   /** Non-fatal warning sink (default console.warn). */
   warn?: (msg: string) => void
+  /** Clock for turn timings (default performance.now). */
+  now?: () => number
+  /** VAD endpointing tail (redemption ms) — a CONSTANT annotation, not a measurement. */
+  vadTailMs?: number
+  /** Fires once per finalized turn with its timings (any outcome). */
+  onTurnComplete?: (timings: TurnTimings) => void
 }
 
 /**
@@ -135,11 +148,13 @@ export class ConversationOrchestrator {
   private frameId: number | null = null
   private disposed = false
   private unsubEmotion: (() => void) | null = null
+  private readonly timings: TurnTimingsRecorder
 
   private readonly listeners = new Set<() => void>()
 
   constructor(deps: OrchestratorDeps) {
     this.deps = deps
+    this.timings = new TurnTimingsRecorder({ now: deps.now })
     this.faceSkin = deps.faceSkin ?? null
     // Mirror every emotion-store change (phase-driven OR a HUD override) into the
     // active skin, so one subscription keeps the face in lockstep with the FSM.
@@ -191,10 +206,11 @@ export class ConversationOrchestrator {
    * A clip that arrives while a turn is active is a BARGE-IN — it aborts the
    * current turn first, then starts fresh.
    */
-  async submitAudio(blob: Blob): Promise<void> {
+  async submitAudio(blob: Blob, meta?: { source?: 'vad' | 'ptt' }): Promise<void> {
     if (this.disposed) return
     if (this.isBusy()) this.interrupt()
 
+    this.timings.begin(meta?.source ?? 'ptt', { vadTailMs: this.deps.vadTailMs })
     this.setStatus({ error: undefined })
     this.setPhase('transcribing')
 
@@ -220,6 +236,12 @@ export class ConversationOrchestrator {
     this.sttAbort = null
     if (this.disposed) return
 
+    this.timings.mark('sttEnd')
+    this.timings.annotate({
+      sttEngine: result.engine,
+      sttBackend: result.backend,
+      sttUpstreamMs: result.latencyMs,
+    })
     this.setStatus({
       sttEngine: result.engine,
       sttBackend: result.backend,
@@ -229,6 +251,7 @@ export class ConversationOrchestrator {
     const text = result.text.trim()
     if (!text) {
       // Nothing was said (silence / misfire) — quietly return to rest.
+      this.endTurn('empty')
       this.setPhase('idle')
       return
     }
@@ -241,8 +264,14 @@ export class ConversationOrchestrator {
     const trimmed = text.trim()
     if (!trimmed) return
     if (this.isBusy()) this.interrupt()
+    this.timings.begin('typed')
     this.setStatus({ error: undefined, lastTranscript: trimmed })
     this.runTurn(trimmed)
+  }
+
+  /** Finalized timing records for the session (latest last, capped ring). */
+  getTurnLog(): readonly TurnTimings[] {
+    return this.timings.log()
   }
 
   // --- the chat + speak pipeline ------------------------------------------
@@ -265,14 +294,23 @@ export class ConversationOrchestrator {
     // that handoff waits for real audio (the TTS `onStart`) so the mouth is
     // synced to sound, never to the raw token stream.
     this.setPhase('waiting')
+    this.timings.mark('chatStart')
+    this.timings.annotate({
+      provider,
+      model: settings.model ?? undefined,
+      ttsEngine: engine,
+    })
 
     const callbacks: ChatDriverCallbacks = {
       onToken: (delta) => {
         // Live transcript: append the raw delta as it streams.
         conv.appendAssistantDelta(delta)
       },
+      // Timing-only: the phase handoff still waits for real audio (TTS onStart).
+      onFirstToken: () => this.timings.mark('firstToken'),
       onSentence: (sentence) => {
         // Start speaking on the FIRST complete sentence for low latency.
+        this.timings.mark('firstSentence')
         this.deps.tts.speak(sentence, { engine })
       },
       onDone: (chatResult) => {
@@ -281,7 +319,10 @@ export class ConversationOrchestrator {
         this.deps.emotion.setResting(chatResult.emotion)
         // If nothing was ever spoken (empty reply), the TTS `onEnd` won't fire —
         // settle to the resting emotion now.
-        if (!this.speaking) this.setPhase('idle')
+        if (!this.speaking) {
+          this.endTurn('complete')
+          this.setPhase('idle')
+        }
       },
       onError: (err) => {
         conv.finalizeAssistantTurn()
@@ -311,14 +352,24 @@ export class ConversationOrchestrator {
   /** The first spoken sentence began — hand off to SPEAKING synced to audio. */
   handleSpeechStart(): void {
     if (this.disposed) return
+    this.timings.mark('ttsStart')
     this.setSpeaking(true)
     this.setPhase('speaking')
     this.startMouthBridge()
   }
 
+  /** Real audio became audible (router `onFirstAudible`) — the TTFW end mark. */
+  handleFirstAudible(): void {
+    if (this.disposed) return
+    this.timings.mark('firstAudible')
+    const cur = this.timings.current()
+    if (cur?.firstAudibleMs !== undefined) this.setStatus({ latency: { ...cur } })
+  }
+
   /** The TTS queue drained naturally — settle back to the resting emotion. */
   handleSpeechEnd(): void {
     if (this.disposed) return
+    this.endTurn('complete')
     this.stopMouthBridge()
     this.setSpeaking(false)
     this.setPhase('idle')
@@ -423,10 +474,21 @@ export class ConversationOrchestrator {
   }
 
   private fail(message: string): void {
+    this.endTurn('error')
     this.setStatus({ error: message })
     this.setSpeaking(false)
     this.stopMouthBridge()
     this.setPhase('error')
+  }
+
+  /** Finalize the turn's timing record; publish completed ones to the status. */
+  private endTurn(outcome: TurnOutcome): void {
+    const rec = this.timings.end(outcome)
+    if (!rec) return
+    if (outcome === 'complete' && rec.firstAudibleMs !== undefined) {
+      this.setStatus({ latency: rec })
+    }
+    this.deps.onTurnComplete?.(rec)
   }
 
   private setStatus(patch: Partial<OrchestratorStatus>): void {
@@ -442,6 +504,7 @@ export class ConversationOrchestrator {
 
   dispose(): void {
     this.disposed = true
+    this.endTurn('aborted')
     this.interrupt()
     this.stopMouthBridge()
     this.unsubEmotion?.()

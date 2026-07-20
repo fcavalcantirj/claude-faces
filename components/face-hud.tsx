@@ -15,6 +15,11 @@ interface FaceHudProps {
    * so users see the active STT engine/backend — i.e. that $0/private mode is on.
    */
   sttReadout?: string
+  /**
+   * Optional last-turn latency readout (e.g. "VAD 1.4 · STT 0.9 · TTFT 8.2 ·
+   * TTS 0.4 · TTFW 10.9s") — the per-stage speak-stop → first-word timeline.
+   */
+  latReadout?: string
 }
 
 export function FaceHud({
@@ -23,6 +28,7 @@ export function FaceHud({
   title = 'AGENT FACES',
   subtitle = 'VOICE FACE INTERFACE',
   sttReadout,
+  latReadout,
 }: FaceHudProps) {
   const meta = EMOTION_META[emotion]
 
@@ -89,6 +95,12 @@ export function FaceHud({
             <div className="flex gap-2">
               <dt className="w-20 text-muted-foreground/60">STT</dt>
               <dd>{sttReadout}</dd>
+            </div>
+          ) : null}
+          {latReadout ? (
+            <div className="flex gap-2">
+              <dt className="w-20 text-muted-foreground/60">LAT</dt>
+              <dd>{latReadout}</dd>
             </div>
           ) : null}
         </dl>

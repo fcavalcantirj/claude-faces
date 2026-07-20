@@ -20,6 +20,9 @@ export function createBridgeServer({ env, queryFn, log = () => {}, lockWaitMs = 
     model: env.model,
     permissionMode: env.permissionMode,
     cwd: env.cwd,
+    // One log line per attempt: spawn+resume+TTFT attribution for the
+    // measurement sessions (undefined marks are dropped by stringify).
+    onTiming: (t) => log("[bridge-timing] " + JSON.stringify(t)),
   });
 
   let busy = false;

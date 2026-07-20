@@ -35,7 +35,8 @@ import { transcribe } from '@/lib/stt'
 import { runChat } from '@/lib/chat/client'
 import { createRecorder } from '@/lib/audio/recorder'
 import { createPushToTalk, type PushToTalkController } from '@/lib/audio/push-to-talk'
-import { createVad, type VadController } from '@/lib/audio/vad'
+import { createVad, DEFAULT_REDEMPTION_MS, type VadController } from '@/lib/audio/vad'
+import { toLine } from '@/lib/latency'
 import type { MouthState } from '@/components/agent-face'
 import type { FaceSkin } from '@/lib/face/skin'
 
@@ -65,6 +66,7 @@ function buildRig(): OrchestratorRig {
     { mouthRef, defaultEngine: conversation.getState().settings.ttsEngine },
     {
       onStart: () => orchRef.current?.handleSpeechStart(),
+      onFirstAudible: () => orchRef.current?.handleFirstAudible(),
       onEnd: () => orchRef.current?.handleSpeechEnd(),
       onError: (err) => orchRef.current?.handleSpeechError(err),
     },
@@ -72,12 +74,12 @@ function buildRig(): OrchestratorRig {
 
   const recorder = createRecorder({
     // An auto-stopped clip (size/duration guard) still runs a turn.
-    onResult: (blob) => void orchRef.current?.submitAudio(blob),
+    onResult: (blob) => void orchRef.current?.submitAudio(blob, { source: 'ptt' }),
   })
 
   const ptt = createPushToTalk({
     recorder,
-    onResult: (blob) => void orchRef.current?.submitAudio(blob),
+    onResult: (blob) => void orchRef.current?.submitAudio(blob, { source: 'ptt' }),
     onError: (err) => {
       console.warn('[push-to-talk]', err)
       // A gesture-initiated mic failure must be visible, not console-only —
@@ -90,7 +92,8 @@ function buildRig(): OrchestratorRig {
   // lib/audio/vad.ts) — echo of the reply must never reach submitAudio.
   // Interrupting mid-reply is a UI action (Esc / STOP / the talk controls).
   const vad = createVad({
-    onSpeechEnd: (segment) => void orchRef.current?.submitAudio(segment.blob),
+    onSpeechEnd: (segment) =>
+      void orchRef.current?.submitAudio(segment.blob, { source: 'vad' }),
     onError: (err) => console.warn('[vad]', err),
   })
 
@@ -111,8 +114,22 @@ function buildRig(): OrchestratorRig {
       typeof cancelAnimationFrame !== 'undefined'
         ? (id) => cancelAnimationFrame(id)
         : undefined,
+    // Turn-latency instrumentation: the VAD tail is the redemption constant
+    // (estimated, not measured — see lib/latency.ts), and every finalized turn
+    // emits one scrapeable JSON line for the measurement sessions.
+    vadTailMs: DEFAULT_REDEMPTION_MS,
+    onTurnComplete: (t) => console.info('[latency] ' + toLine(t)),
   })
   orchRef.current = orchestrator
+
+  // Scripted collection during measurement runs: __agentFaceLatency.dump()
+  // returns one JSON line per finalized turn (ring-capped).
+  if (typeof window !== 'undefined') {
+    ;(window as unknown as Record<string, unknown>).__agentFaceLatency = {
+      log: () => orchestrator.getTurnLog(),
+      dump: () => orchestrator.getTurnLog().map(toLine).join('\n'),
+    }
+  }
 
   return {
     orchestrator,

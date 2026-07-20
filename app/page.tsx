@@ -25,6 +25,7 @@ import { useConversation } from '@/lib/use-conversation'
 import { useEmotion } from '@/lib/face/use-emotion'
 import { useOrchestrator } from '@/lib/use-orchestrator'
 import { useCapabilities } from '@/lib/use-capabilities'
+import { formatLatencyReadout } from '@/lib/latency'
 
 /** Short, human label for the active lifecycle phase (HUD readout). */
 const PHASE_LABEL: Record<string, string> = {
@@ -68,6 +69,9 @@ export default function Home() {
   const sttReadout = status.sttEngine
     ? `${status.sttEngine.toUpperCase()}${status.sttBackend ? ` · ${status.sttBackend.toUpperCase()}` : ''}`
     : undefined
+  // Last turn's speak-stop → first-word timeline (VAD share is the redemption
+  // constant, estimated — see lib/latency.ts).
+  const latReadout = status.latency ? formatLatencyReadout(status.latency) : undefined
 
   function submitDraft(e: React.FormEvent) {
     e.preventDefault()
@@ -92,6 +96,7 @@ export default function Home() {
         onEmotionChange={setEmotion}
         subtitle={PHASE_LABEL[status.phase] ?? 'VOICE FACE INTERFACE'}
         sttReadout={sttReadout}
+        latReadout={latReadout}
       />
 
       {/* Settings button. */}

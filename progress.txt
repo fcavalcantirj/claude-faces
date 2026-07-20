@@ -3080,3 +3080,38 @@ PLAYWRIGHT_PORT=3100 full e2e EXIT=0 (17 passed, 1 pre-existing skip); sync-temp
 UAT: [remote-mic] dasbrow runs `tailscale serve --bg 3000` on the Pi and posts the https
 URL; Felipe opens it and presses talk — mic prompt + live transcript + spoken reply = the
 definitive close. Plain-http URL should now show the tailscale-naming hint card.
+
+2026-07-20: [frontend+backend] TTFW INSTRUMENTATION SHIPPED (Task 2a of Felipe's latency
+push — build the RULER first; no optimization implemented, per his gating instruction).
+THE METRIC: ttfwMs = speak-stop → first AUDIBLE reply word. NEW lib/latency.ts (pure,
+clock-injected, ring cap 20): TurnTimingsRecorder with marks sttEnd/chatStart/firstToken/
+firstSentence/ttsStart/firstAudible anchored at t0 = submitAudio/submitText entry;
+vadTailMs carries DEFAULT_REDEMPTION_MS (1400) as an HONESTLY-LABELED CONSTANT (the Silero
+redemption window elapses inside vad-web before the app can observe speech-end) and is
+added into ttfwMs; toLine() emits the shared per-turn JSON line; formatLatencyReadout()
+renders "VAD 1.4 · STT 0.9 · TTFT 8.2 · TTS 0.4 · TTFW 10.5s". TRUE-AUDIBLE SEAM:
+TtsRouter gains onFirstAudible (once per turn, reset on stop/finish) — web-speech wires the
+previously-unwired WebSpeechTTS onStart (u.onstart = real sound); clip path adds
+el.onplaying with the gen guard + teardown clearing (a late 'playing' after barge-in can
+never mark the next turn — tested). ORCHESTRATOR: submitAudio(blob, {source: 'vad'|'ptt'}),
+timing marks through the FSM, onFirstToken wired TIMING-ONLY (test pins that phase/emotion
+do not move — SPEAKING handoff still waits for real audio), status.latency set at
+first-audible + completed end only, getTurnLog(), onTurnComplete dep. WIRING: HUD gains a
+conditional LAT row (sttReadout idiom); use-orchestrator tags vad/ptt sources, passes
+vadTailMs, console.info('[latency] ' + line) per finalized turn, installs
+window.__agentFaceLatency {log, dump} for scripted harvesting. BRIDGE (claude-code kind):
+session.mjs createSession({now, onTiming}) emits one record PER ATTEMPT {v,kind:'bridge',
+resumed,initMs,firstDeltaMs,totalMs,ackSynthetic,ok} with t0 BEFORE queryFn() — the
+subprocess-spawn+resume+TTFT attribution the analysis needs; synthetic tool-ack first
+deltas are flagged; server.mjs logs '[bridge-timing] {json}'. NO wire/StreamEvent change —
+roundtrip.test.ts ran unchanged as the contract guard. NOTE: orchestrator.ts is now 544
+lines (soft ~500 cap; repo precedent lib/tts/index.ts=596 — flagged, not split, to avoid
+churning unasked code; candidate split = mouth bridge if it ever grows again).
+Verify (all RUN, $? captured directly): latency RED(9 no-module)→GREEN 9/9; tts RED(3)→
+GREEN 22/22; orchestrator RED(4)→GREEN 23/23; bridge RED(3)→GREEN 67/67 incl. roundtrip;
+npm test EXIT=0 (618); npm run verify EXIT=0; npm run verify:linux EXIT=0 (after git add —
+it stages via git ls-files, worth remembering for new files); full e2e EXIT=0 (17 passed,
+1 pre-existing skip); sync-template run (6 mirrors).
+UAT: [latency] human speaks one turn and confirms the LAT row appears in the HUD corner
+with TTFW roughly matching a stopwatch; [latency] a claude-code bridge turn logs
+[bridge-timing] lines on the bridge stderr.

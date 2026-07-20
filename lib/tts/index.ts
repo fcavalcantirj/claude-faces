@@ -60,6 +60,13 @@ export interface TtsRouterCallbacks {
   onStart?: () => void
   /** The queue drained naturally — orchestrator returns to the resting emotion. */
   onEnd?: () => void
+  /**
+   * Real audio became audible for this turn (web-speech `u.onstart` / clip
+   * element 'playing'). Fires ONCE per turn and only for actual sound —
+   * `onStart` fires earlier, at queue-take, before anything is heard. This is
+   * the accurate end mark for time-to-first-word instrumentation.
+   */
+  onFirstAudible?: () => void
   /** A non-recoverable engine error surfaced out-of-band. */
   onError?: (err: unknown) => void
   /** The active mouth source changed (orchestrator sets AgentFace `mouthSource`). */
@@ -130,6 +137,8 @@ export class TtsRouter {
   private active = false
   /** True between the first onStart and the settling onEnd of a turn. */
   private started = false
+  /** True once this turn's audio actually became audible (resets per turn). */
+  private audibleFired = false
   /** Bumped on every stop() so stale async continuations no-op. */
   private gen = 0
   private mouthSource: MouthSource = 'off'
@@ -222,6 +231,7 @@ export class TtsRouter {
     this.gen += 1
     this.queue = []
     this.started = false
+    this.audibleFired = false
     this.active = false
     this.webSpeech?.cancel()
     this.teardownPlayback()
@@ -264,6 +274,7 @@ export class TtsRouter {
 
   private finishTurn(): void {
     this.started = false
+    this.audibleFired = false
     this.active = false
     this.writeSilence()
     this.setMouthSource('off')
@@ -274,6 +285,14 @@ export class TtsRouter {
     if (!this.started) {
       this.started = true
       this.callbacks.onStart?.()
+    }
+  }
+
+  /** Real sound began (engine-reported). Once per turn. */
+  private markAudible(): void {
+    if (!this.audibleFired) {
+      this.audibleFired = true
+      this.callbacks.onFirstAudible?.()
     }
   }
 
@@ -294,6 +313,8 @@ export class TtsRouter {
     const make = this.deps.createWebSpeechImpl ?? createWebSpeechTTS
     this.webSpeech = make(
       {
+        // Fires at u.onstart — the utterance is actually AUDIBLE now.
+        onStart: () => this.markAudible(),
         // Fires when a single queued sentence finishes — advance the router queue.
         onEnd: () => this.advance(this.gen),
         onError: (err) => this.callbacks.onError?.(err),
@@ -332,6 +353,12 @@ export class TtsRouter {
       this.setMouthSource('analyser')
       this.markStarted()
 
+      // 'playing' is the truthful audible instant on this path — el.play()
+      // resolves slightly before sound reaches the output.
+      el.onplaying = () => {
+        if (gen !== this.gen) return
+        this.markAudible()
+      }
       el.onended = () => {
         if (gen !== this.gen) return
         this.teardownPlayback()
@@ -464,6 +491,8 @@ export class TtsRouter {
     if (this.currentAudio) {
       this.currentAudio.onended = null
       this.currentAudio.onerror = null
+      // A late 'playing' from a torn-down element must never mark the NEXT turn.
+      this.currentAudio.onplaying = null
       try {
         this.currentAudio.pause()
       } catch {
