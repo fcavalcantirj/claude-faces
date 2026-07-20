@@ -72,6 +72,8 @@ export class RecorderError extends Error {
 /** Injectable browser primitives (defaults read the real globals). */
 export interface RecorderDeps {
   getUserMedia?: (constraints: MediaStreamConstraints) => Promise<MediaStream>;
+  /** Secure-context flag (default reads `globalThis.isSecureContext`). */
+  isSecureContext?: boolean;
   createRecorder?: (
     stream: MediaStream,
     options?: MediaRecorderOptions,
@@ -239,10 +241,24 @@ export class MicRecorder {
     if (!this.mediaStream) {
       const getUserMedia = resolveGetUserMedia(this.deps);
       if (!getUserMedia) {
-        const e = new RecorderError(
-          "not-supported",
-          "Microphone capture is not available in this browser or context.",
-        );
+        // On plain-HTTP non-localhost origins browsers hide mediaDevices
+        // entirely — that is origin policy, not missing capability, and the
+        // remedy (HTTPS or localhost) belongs in the message.
+        const secure =
+          this.deps.isSecureContext ??
+          (globalThis as { isSecureContext?: boolean }).isSecureContext;
+        const e =
+          secure === false
+            ? new RecorderError(
+                "insecure-context",
+                "Microphone capture is blocked on this insecure (plain http://, " +
+                  "non-localhost) address. Serve the app over HTTPS or open it on " +
+                  "localhost — you can still type your message.",
+              )
+            : new RecorderError(
+                "not-supported",
+                "Microphone capture is not available in this browser or context.",
+              );
         this.error = e;
         this.setState("error");
         throw e;

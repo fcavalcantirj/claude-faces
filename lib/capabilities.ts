@@ -186,6 +186,21 @@ const NO_BRAIN_MESSAGE =
   'animates and you can browse — but chat is off until a brain is reachable.'
 
 /**
+ * On a plain-HTTP non-localhost origin the browser hides `navigator.mediaDevices`
+ * entirely, so `microphone` reads false too — the origin, not missing hardware,
+ * is the diagnosis. See skill/agent-face/references/remote.md.
+ */
+export const VOICE_IN_INSECURE_ORIGIN_MESSAGE =
+  'Microphone blocked: this address is plain http:// and not localhost, so the browser ' +
+  'hides the mic (and in-browser Whisper). Serve it over HTTPS — on a tailnet: ' +
+  '`tailscale serve 3000` — or open it on the machine itself at localhost. ' +
+  'You can still type your turns.'
+
+export const VOICE_IN_NO_MIC_MESSAGE =
+  'No microphone available: this browser has no audio capture (getUserMedia / MediaRecorder) ' +
+  'or no input device. Connect a mic or use a current browser. You can still type your turns.'
+
+/**
  * Compute what works for this deployment + browser. Pure and total: every
  * unavailable capability carries an actionable `message`, and the face is never
  * gated — only chat/voice are. This is what the app reads on load to decide
@@ -210,10 +225,10 @@ export function computeFeatureMatrix(
   const voiceInOk = mic && sttOk
   let voiceInMessage: string | undefined
   if (!voiceInOk) {
-    if (!mic) {
-      voiceInMessage =
-        'Voice input needs microphone access over a secure (https/localhost) context. ' +
-        'You can still type your turns.'
+    if (!browser.secureContext) {
+      voiceInMessage = VOICE_IN_INSECURE_ORIGIN_MESSAGE
+    } else if (!mic) {
+      voiceInMessage = VOICE_IN_NO_MIC_MESSAGE
     } else {
       voiceInMessage =
         'No speech-to-text available: this browser can’t run in-browser Whisper and no hosted ' +

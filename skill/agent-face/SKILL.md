@@ -287,6 +287,7 @@ Load these only when you need the detail:
 | [`references/voice.md`](references/voice.md) | Voice in/out details — STT engines, TTS engines, env knobs |
 | [`references/face.md`](references/face.md) | The particle face, emotions, and `[[face:…]]` directives |
 | [`references/troubleshooting.md`](references/troubleshooting.md) | "Pressed talk, nothing happened" and every other stall |
+| [`references/remote.md`](references/remote.md) | Opening the face from another machine (LAN/tailnet) — what needs HTTPS, one-command remedies |
 
 ---
 

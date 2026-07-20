@@ -78,7 +78,12 @@ function buildRig(): OrchestratorRig {
   const ptt = createPushToTalk({
     recorder,
     onResult: (blob) => void orchRef.current?.submitAudio(blob),
-    onError: (err) => console.warn('[push-to-talk]', err),
+    onError: (err) => {
+      console.warn('[push-to-talk]', err)
+      // A gesture-initiated mic failure must be visible, not console-only —
+      // e.g. insecure-origin or permission-denied on the very first press.
+      orchRef.current?.reportMicError(err)
+    },
   })
 
   // HALF-DUPLEX: the VAD suppresses itself while the face speaks (see
@@ -240,7 +245,13 @@ export function useOrchestrator(): UseOrchestrator {
         void rig.vad.pause()
         return false
       }
-      void rig.vad.start().catch((err) => console.warn('[vad] start failed', err))
+      void rig.vad.start().catch((err) => {
+        console.warn('[vad] start failed', err)
+        // Surface the failure AND drop the engaged flag — otherwise the button
+        // reads LISTENING while no mic ever started.
+        rig.orchestrator.reportMicError(err)
+        setListening(false)
+      })
       return true
     })
   }, [rig])

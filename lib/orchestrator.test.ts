@@ -6,6 +6,7 @@ import {
   type TranscribeFn,
 } from '@/lib/orchestrator'
 import { createConversationStore, type StorageLike } from '@/lib/conversation'
+import { RecorderError } from '@/lib/audio/recorder'
 import { createEmotionStore } from '@/lib/face/emotion-machine'
 import type {
   ChatDriverCallbacks,
@@ -353,5 +354,59 @@ describe('conversation orchestrator', () => {
     expect(skin.calls.mouth).toBeGreaterThan(0)
     orch.handleSpeechEnd()
     expect(orch.isSpeaking()).toBe(false)
+  })
+
+  it('reportMicError surfaces the RecorderError message without entering the error phase', () => {
+    const chat = makeFakeChat()
+    const orch = createOrchestrator({
+      conversation,
+      emotion,
+      tts: makeFakeTts().tts,
+      transcribe: async () => ({ text: 'hi', engine: 'browser' }),
+      runChat: chat.runChat,
+    })
+    let notified = 0
+    orch.subscribe(() => notified++)
+    orch.reportMicError(
+      new RecorderError(
+        'insecure-context',
+        'Microphone capture is blocked on this insecure address. Serve over HTTPS or open on localhost.',
+      ),
+    )
+    // The turn never began: red toast, but NO error phase / glitch face.
+    expect(orch.getStatus().error).toMatch(/HTTPS/)
+    expect(orch.getPhase()).toBe('idle')
+    expect(emotion.getState()).not.toBe('glitch')
+    expect(notified).toBeGreaterThan(0)
+  })
+
+  it('reportMicError uses a generic message for non-recorder errors', () => {
+    const chat = makeFakeChat()
+    const orch = createOrchestrator({
+      conversation,
+      emotion,
+      tts: makeFakeTts().tts,
+      transcribe: async () => ({ text: 'hi', engine: 'browser' }),
+      runChat: chat.runChat,
+    })
+    orch.reportMicError(new Error('AudioContext exploded'))
+    expect(orch.getStatus().error).toMatch(/microphone/i)
+    expect(orch.getStatus().error).toMatch(/type/i)
+    expect(orch.getPhase()).toBe('idle')
+  })
+
+  it('the next submitted turn clears a mic error', () => {
+    const chat = makeFakeChat()
+    const orch = createOrchestrator({
+      conversation,
+      emotion,
+      tts: makeFakeTts().tts,
+      transcribe: async () => ({ text: 'hi', engine: 'browser' }),
+      runChat: chat.runChat,
+    })
+    orch.reportMicError(new RecorderError('not-supported', 'no mic here'))
+    expect(orch.getStatus().error).toBeTruthy()
+    orch.submitText('typed instead')
+    expect(orch.getStatus().error).toBeUndefined()
   })
 })

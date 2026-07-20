@@ -3045,3 +3045,38 @@ DasBrowCoder), arm64 platform coverage (smoke 43/43), an adapter contract, a por
 hardening, a venv autodetect, and a hydration fix — every one live-verified by a peer agent.
 Remaining items are ALL parked/optional: tailscale-serve HTTPS, local folder mv, PH
 launch-day manual steps (docs/launch/product-hunt.md checklist).
+
+2026-07-20: [frontend] REMOTE-MIC CLOSED AS UX + DOCS (Felipe's "does the server need the
+mic?" — answer: NO, the mic lives in the browser; http://<lan-ip> is an untrustworthy
+origin so the browser hides navigator.mediaDevices AND ignores COOP). WHAT SHIPPED:
+capabilities.ts now branches !secureContext FIRST in the voiceIn matrix (on an insecure
+origin `microphone` reads false too — the old message misdiagnosed the origin as a missing
+mic) with a remedy-naming message (VOICE_IN_INSECURE_ORIGIN_MESSAGE: HTTPS / `tailscale
+serve 3000` / localhost); recorder.ts wires the previously-UNREACHABLE "insecure-context"
+RecorderError kind (new RecorderDeps.isSecureContext, checked when getUserMedia resolves
+undefined); orchestrator gains reportMicError() — status.error ONLY, deliberately NOT
+fail() (a mic that never started must not glitch the face or stop a speaking mouth);
+use-orchestrator surfaces PTT onError + vad.start() rejection through it (and fixes the
+latent stuck-LISTENING bug: failed hands-free start now drops the engaged flag).
+REPRO: new tests/e2e/insecure-origin.spec.ts — navigates THIS machine's real LAN IPv4,
+asserts isSecureContext=false + typeof mediaDevices === "undefined" + crossOriginIsolated
+=false + disabled VOICE UNAVAILABLE button + marker substrings of the remedy (HTTPS/
+localhost/tailscale serve — markers only, message stays copy-editable); double skip-guard
+(no LAN IPv4 / unreachable origin) so CI shapes can't flake it. degradation.spec.ts gains
+the denied-mic toast case (init-script NotAllowedError → "Microphone permission was
+denied" visible). FOUND EN ROUTE: Next 16 dev BLOCKS cross-origin /_next/* (assets+HMR)
+from non-localhost hosts — the LAN-served DEV face half-loads (client bundle blocked, no
+config probe; prod builds unaffected, which is why dasbrow's Pi worked). Fixed in
+next.config.mjs: allowedDevOrigins = this machine's own non-internal IPv4s, enumerated at
+config load (dev-only, no wildcards, zero prod effect). DOCS: new references/remote.md
+(remote face checklist: works-over-HTTP vs needs-HTTPS table, remedies ranked — tailscale
+serve --bg / cloudflared / caddy — verify commands, dev-origin note); one-line cross-links
+from troubleshooting §1+§6, deploy.md HTTPS reminder, SKILL.md reference table (307 lines,
+cap 500), README Deploy.
+Verify (all RUN, $? captured directly): units RED(5)→GREEN; npm test EXIT=0 (598);
+npm run verify EXIT=0 (6 gates incl. template parity); npm run verify:linux EXIT=0;
+PLAYWRIGHT_PORT=3100 full e2e EXIT=0 (17 passed, 1 pre-existing skip); sync-template run
+(5 mirrors updated).
+UAT: [remote-mic] dasbrow runs `tailscale serve --bg 3000` on the Pi and posts the https
+URL; Felipe opens it and presses talk — mic prompt + live transcript + spoken reply = the
+definitive close. Plain-http URL should now show the tailscale-naming hint card.

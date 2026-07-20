@@ -47,6 +47,7 @@ import type { MouthState } from '@/components/agent-face'
 // so that would ship the SDK to the browser. types.ts has zero imports.
 // Enforced by tests/client-boundary.test.ts.
 import { AdapterError } from '@/lib/providers/types'
+import { RecorderError } from '@/lib/audio/recorder'
 
 /** The TTS surface the orchestrator drives (satisfied by `TtsRouter`). */
 export interface OrchestratorTts {
@@ -326,6 +327,20 @@ export class ConversationOrchestrator {
   /** A non-recoverable TTS error surfaced out-of-band. */
   handleSpeechError(err: unknown): void {
     this.deps.warn?.(`[orchestrator] TTS error: ${describe(err)}`)
+  }
+
+  /**
+   * A mic-start failure (PTT press / hands-free start). Status-only: the turn
+   * never began, so the phase — and the face — stay untouched; the red toast is
+   * the affordance, not the glitch face. Cleared by the next submitted turn.
+   */
+  reportMicError(err: unknown): void {
+    if (this.disposed) return
+    const message =
+      err instanceof RecorderError
+        ? err.message
+        : 'Could not start the microphone. You can still type your message.'
+    this.setStatus({ error: message })
   }
 
   // --- barge-in ------------------------------------------------------------

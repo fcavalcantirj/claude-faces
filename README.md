@@ -114,6 +114,8 @@ Full contract + per-agent wiring: [`skill/agent-face/references/backends.md`](sk
   network with no tunnel.
 
 Details: [`skill/agent-face/references/deploy.md`](skill/agent-face/references/deploy.md).
+Opening the face from another machine? The mic needs HTTPS (`tailscale serve 3000` on a
+tailnet) — see the [remote face checklist](skill/agent-face/references/remote.md).
 
 ---
 

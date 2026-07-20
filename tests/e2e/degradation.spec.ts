@@ -156,6 +156,31 @@ test("with a brain configured the send flow works", async ({ page }) => {
   await expect(page.locator("body")).toContainText("I am awake.", { timeout: 20_000 });
 });
 
+test("a denied mic surfaces a visible error toast and keeps typing open", async ({ page }) => {
+  await mockConfig(page, EMPTY_CONFIG);
+  // A secure context with a mic PRESENT but permission denied: the capability
+  // gate keeps the button enabled, so the failure happens at press time — it
+  // must surface as the red toast (reportMicError), never console-only.
+  await page.addInitScript(() => {
+    const md = navigator.mediaDevices;
+    if (md) {
+      md.getUserMedia = () =>
+        Promise.reject(new DOMException("Permission denied", "NotAllowedError"));
+    }
+  });
+  await page.goto("/");
+
+  const talk = page.getByRole("button", { name: /HOLD TO TALK/ });
+  await expect(talk).toBeVisible({ timeout: 30_000 });
+  await talk.dispatchEvent("pointerdown");
+
+  // Marker substring of the existing RecorderError permission-denied message.
+  await expect(page.locator("body")).toContainText("Microphone permission was denied", {
+    timeout: 10_000,
+  });
+  await expect(page.getByPlaceholder("…or type a message")).toBeVisible();
+});
+
 // NOTE ON RECOVERY WITHOUT RELOAD
 //
 // The task text asks that enabling a brain restore the send flow "without

@@ -220,9 +220,38 @@ describe('computeFeatureMatrix', () => {
   })
 
   it('reports voice-in unavailable with an actionable message when no mic and no STT', () => {
-    const m = computeFeatureMatrix(makeConfig(), bareBrowser())
+    // Secure context but zero capture support — the plain no-mic branch (an
+    // insecure context is a DIFFERENT branch, tested below).
+    const m = computeFeatureMatrix(makeConfig(), { ...bareBrowser(), secureContext: true })
     expect(m.voiceIn.available).toBe(false)
     expect(m.voiceIn.message).toBeTruthy()
+    expect(m.voiceIn.message).not.toMatch(/tailscale|HTTPS/)
+  })
+
+  it('names the insecure origin and the HTTPS/tailscale remedy when the context is insecure', () => {
+    // A plain-HTTP non-localhost origin: the browser hides mediaDevices, so
+    // `microphone` is ALSO false — the message must diagnose the ORIGIN, not
+    // claim there is no mic.
+    const caps = {
+      ...fullBrowser(),
+      microphone: false,
+      secureContext: false,
+      crossOriginIsolated: false,
+    }
+    const m = computeFeatureMatrix(makeConfig(), caps)
+    expect(m.voiceIn.available).toBe(false)
+    expect(m.voiceIn.message).toMatch(/tailscale serve 3000/)
+    expect(m.voiceIn.message).toMatch(/localhost/)
+    expect(m.voiceIn.message).toMatch(/HTTPS/)
+    expect(m.voiceIn.message).not.toMatch(/No speech-to-text/)
+  })
+
+  it('keeps a plain no-mic message on a secure context without capture support', () => {
+    const caps = { ...fullBrowser(), mediaRecorder: false, microphone: false }
+    const m = computeFeatureMatrix(makeConfig(), caps)
+    expect(m.voiceIn.available).toBe(false)
+    expect(m.voiceIn.message).toMatch(/microphone/i)
+    expect(m.voiceIn.message).not.toMatch(/tailscale|HTTPS/)
   })
 
   it('reports voice-out unavailable when neither Web Speech nor hosted TTS exists', () => {

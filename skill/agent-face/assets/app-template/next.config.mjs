@@ -1,5 +1,26 @@
 /** @type {import('next').NextConfig} */
 
+import os from 'node:os';
+
+// DEV-ONLY: let other devices on the LAN/tailnet open the dev server.
+//
+// Next dev blocks cross-origin requests to /_next/* (assets, HMR) from any
+// non-localhost origin unless that host is in `allowedDevOrigins` — opening
+// http://<this-machine's-ip>:3100 from a phone/Pi/another laptop otherwise
+// half-loads (client bundle blocked, HMR refused). Enumerating this machine's
+// own non-internal IPv4s keeps the allowance exact — no wildcards, no effect
+// on `next build`/production. The LAN-origin e2e repro
+// (tests/e2e/insecure-origin.spec.ts) depends on this too.
+function lanIPv4s() {
+  const out = [];
+  for (const ifaces of Object.values(os.networkInterfaces())) {
+    for (const iface of ifaces ?? []) {
+      if (iface.family === 'IPv4' && !iface.internal) out.push(iface.address);
+    }
+  }
+  return out;
+}
+
 // LOAD-BEARING: cross-origin isolation headers.
 //
 // The browser-Whisper path (transformers.js + WebGPU / WASM threads) needs
@@ -26,6 +47,7 @@ const CROSS_ORIGIN_ISOLATION_HEADERS = [
 ];
 
 const nextConfig = {
+  allowedDevOrigins: lanIPv4s(),
   // Emit a self-contained server bundle (.next/standalone/server.js) that
   // traces in only the node_modules it actually needs. This is what the
   // multi-stage Dockerfile ships as the slim self-host runtime image — see

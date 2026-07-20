@@ -239,4 +239,18 @@ describe("MicRecorder", () => {
     await expect(rec.start()).rejects.toMatchObject({ kind: "not-supported" });
     expect(rec.getState()).toBe("error");
   });
+
+  it("throws insecure-context when getUserMedia is missing on an insecure context", async () => {
+    // http://<lan-ip> — browsers hide mediaDevices entirely; the error must
+    // name the real cause (origin policy) and the remedy, not "no support".
+    const rec = new MicRecorder({}, { getUserMedia: undefined, isSecureContext: false });
+    await expect(rec.start()).rejects.toMatchObject({
+      kind: "insecure-context",
+      message: expect.stringMatching(/HTTPS/),
+    });
+    await expect(rec.start()).rejects.toMatchObject({
+      message: expect.stringMatching(/localhost/),
+    });
+    expect(rec.getState()).toBe("error");
+  });
 });

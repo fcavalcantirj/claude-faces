@@ -77,7 +77,9 @@ and no public tunnel required. (On Vercel the same private URL would be hidden.)
 The mic (`getUserMedia`) and browser-Whisper (`crossOriginIsolated`) paths need a
 **secure context**: `http://localhost` works, but any other host must be served
 over **HTTPS**. Put the container behind a reverse proxy (Caddy, nginx, Traefik)
-that terminates TLS when you expose it beyond localhost.
+that terminates TLS when you expose it beyond localhost — or, on a tailnet,
+`tailscale serve --bg 3000` is the one-command option. Full checklist:
+[`remote.md`](remote.md).
 
 ---
 

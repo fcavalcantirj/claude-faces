@@ -35,6 +35,7 @@ the app over **HTTPS** — on Vercel the `*.vercel.app` URL is already HTTPS; fo
 self-host put the container behind a TLS-terminating reverse proxy (Caddy /
 nginx / Traefik), see [`deploy.md`](deploy.md). Also confirm the site's mic
 permission isn't set to **Block** in the address-bar site settings.
+Opening the face from another machine? Full checklist: [`remote.md`](remote.md).
 
 ---
 
@@ -198,7 +199,8 @@ headers** — re-add them at the proxy, or make sure you didn't override
 `credentialless`, that's the documented escape hatch (switch to `require-corp`
 only if you also serve every subresource with a CORP header). The hosted STT
 fallback (§2) works without isolation, so the app still transcribes via Groq /
-OpenAI while you fix this.
+OpenAI while you fix this. Serving to other machines? Full remote checklist:
+[`remote.md`](remote.md).
 
 ---
 
