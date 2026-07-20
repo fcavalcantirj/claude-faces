@@ -2913,3 +2913,22 @@ both smoke.mjs and portability.md's script table (it IS covered by start.test.ts
 vitest — not by the portable smoke half). GAP noted, not yet fixed.
 Verify: git log v0.1.0 -1 = 718b2fc; gh release create EXIT=0; solvr blog returned
 published slug+URL.
+
+2026-07-19: [skill] STANDALONE-HARNESS PROOF + start.mjs portability gaps closed (Felipe:
+"just the repo? ok"). Answer: yes — the repo is self-contained (skill carries the full app
+template; bridge is the only repo-root extra). PROOF RUN [REAL]: copied skill/agent-face OUT
+of the repo to a scratch "skills" dir (simulating any harness's skills folder), then from a
+neutral cwd with plain node: --help contracts exit 0; scaffold.mjs resolved the template
+RELATIVE TO ITSELF and scaffolded; start.mjs <dir> --port 3210 did a real npm install, printed
+the honest no-bridge banner, served /api/config (all brains false, defaultProvider null) and
+an honest 400 on chat. This is byte-for-byte the sequence an openclaw/Hermes/nanoclaw harness
+performs; the only remaining UNVERIFIED sliver is a real harness auto-DISCOVERING SKILL.md.
+BONUS live validation: the sim's --stop freed its own :3210 then REFUSED Felipe's live bridge
+on :8787 (different app dir) with identity printed + exit 3 — the identity-scoped port guard
+protecting the owner's own running face across app boundaries, in production conditions.
+GAPS CLOSED: portability.md table now lists start.mjs (was the headline entrypoint missing
+from "the four scripts"); smoke.mjs gained a start.mjs CLI-contract section (--help exit 0 +
+flags documented + unknown-flag non-zero) so the PORTABLE test half covers it too.
+Verify (all RUN, $? captured directly): npm run test:skill EXIT=0 (new section green);
+npm run verify EXIT=0 (6/6); npm run verify:linux EXIT=0; sim ports empty after teardown;
+:3100/:8787 (Felipe's live face) untouched throughout.

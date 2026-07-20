@@ -51,10 +51,11 @@ extracted standalone.
 
 ---
 
-## The four scripts (all plain `node`)
+## The five scripts (all plain `node`)
 
 | Script | One-line purpose | Runs standalone? |
 |---|---|---|
+| `scripts/start.mjs` | One command: bridge (when the checkout ships one) + dev server + browser; `--stop` tears it down | ✅ `node start.mjs [app-dir] [--port N] [--no-open]` |
 | `scripts/scaffold.mjs` | Copy the app template into a target directory | ✅ `node scaffold.mjs ./agent-face-app` |
 | `scripts/dev.mjs` | Free the dev port (SIGTERM→SIGKILL a prior server of THIS app; foreign holders are refused unless `--take-port`), start dev, open the browser | ✅ `node dev.mjs [--port N] [--no-open] [--take-port]` |
 | `scripts/check-env.mjs` | Report which brains / STT / TTS are configured (secrets masked) | ✅ `node check-env.mjs [--json]` |

@@ -44,6 +44,7 @@ const SCAFFOLD = join(SCRIPTS, "scaffold.mjs");
 const CHECK_ENV = join(SCRIPTS, "check-env.mjs");
 const DEV = join(SCRIPTS, "dev.mjs");
 const DEPLOY = join(SCRIPTS, "deploy.mjs");
+const START = join(SCRIPTS, "start.mjs");
 
 // ---------------------------------------------------------------------------
 // Tiny assertion + temp-dir bookkeeping (no framework).
@@ -317,6 +318,20 @@ async function testDevKillLogic() {
   }
 }
 
+function testStartCli() {
+  console.log("start.mjs (CLI contract — full boot needs a live run, not smoke)");
+
+  let r = runNode([START, "--help"]);
+  check("start --help exits 0", r.status === 0, `exit ${r.status}`);
+  check(
+    "start --help documents the one-command flow",
+    /bridge/i.test(r.out) && /--stop/.test(r.out) && /--take-port/.test(r.out),
+  );
+
+  r = runNode([START, "--bogus-flag"]);
+  check("start rejects an unknown flag non-zero", r.status !== 0, `exit ${r.status}`);
+}
+
 function testDeployPreflight(completeAppDir) {
   console.log("deploy.mjs (preflight + vercel-absent hint)");
 
@@ -366,6 +381,8 @@ async function main() {
     testCheckEnv();
     console.log("");
     await testDevKillLogic();
+    console.log("");
+    testStartCli();
     console.log("");
     testDeployPreflight(completeAppDir);
   } catch (err) {
