@@ -164,7 +164,9 @@ export function useOrchestrator(): UseOrchestrator {
   const inputMode = useSyncExternalStore(
     conversation.subscribe,
     () => conversation.getState().settings.inputMode,
-    () => conversation.getState().settings.inputMode,
+    // Server/hydration snapshot: the default, never the persisted mode (a
+    // hands-free user would otherwise hydrate-mismatch the talk controls).
+    () => conversation.getServerState().settings.inputMode,
   )
   const handsFree = inputMode === 'hands-free'
 

@@ -60,6 +60,36 @@ describe('conversation store', () => {
     ])
   })
 
+  // Hydration safety (the Pi glitch, React #418): the SERVER snapshot must be
+  // the pristine default — never the localStorage-restored state — so the
+  // client's hydration render matches the server HTML byte for byte. The
+  // persisted state may only appear in the post-hydration render.
+  it('getServerState ignores persisted storage and returns the pristine default', () => {
+    const seeded = memoryStorage({
+      [CONVERSATION_STORAGE_KEY]: JSON.stringify({
+        version: 1,
+        turns: [{ id: 't1', role: 'user', content: 'persisted!', at: 1 }],
+        settings: { inputMode: 'hands-free' },
+        system: 'custom persona',
+      }),
+    })
+    const store = createConversationStore({ storage: seeded })
+    // The live state restored...
+    expect(store.getState().turns).toHaveLength(1)
+    expect(store.getState().settings.inputMode).toBe('hands-free')
+    // ...but the server snapshot stays default.
+    expect(store.getServerState().turns).toEqual([])
+    expect(store.getServerState().settings.inputMode).not.toBe('hands-free')
+    expect(store.getServerState().system).toBe(DEFAULT_PERSONA_PROMPT)
+  })
+
+  it('getServerState is referentially stable (useSyncExternalStore requirement)', () => {
+    const store = createConversationStore({ storage })
+    expect(store.getServerState()).toBe(store.getServerState())
+    store.addUserTurn('mutate')
+    expect(store.getServerState()).toBe(store.getServerState())
+  })
+
   it('excludes the still-streaming (pending) assistant turn from toMessages', () => {
     const store = createConversationStore({ storage })
     store.addUserTurn('Question')

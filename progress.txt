@@ -2999,3 +2999,29 @@ Verify (all RUN, $? captured directly): npm test EXIT=0 (590); npm run verify EX
 npm run verify:linux EXIT=0; sync-template run (agent-bridge.ts is mirrored).
 UAT: [backend] dasbrow re-runs the face turn on the Pi against the LIVE gateway — expecting
 the real DasBrowCoder in the face UI + the money-shot screenshot.
+
+2026-07-20: [frontend] HYDRATION GLITCH FIXED (React #418 — Felipe: "interface keeps
+glitching" on the Pi's tailnet URL) + hermes contract CONFIRMED SHIPPED (dasbrow msg 668:
+DECIDER = ship as-is; memory intact across turns on real Hermes/arm64 — "You asked me — for
+the SECOND TIME — who I am"; test:skill 43/43 on arm64). THE BUG: useSyncExternalStore's
+SERVER snapshot in use-conversation.ts and use-orchestrator.ts was the same getState that
+returns the localStorage-RESTORED state — server renders defaults, a state-carrying browser
+hydrates persisted turns/settings -> mismatch -> #418 -> visible re-render glitching. Only
+browsers WITH persisted state hit it (why fresh playwright profiles and cold visits looked
+fine). DIAGNOSIS PROVEN EMPIRICALLY: prod build on :3210 via LAN-IP origin + SEEDED
+localStorage reproduced Felipe's exact console (418 + COOP warning); same seed on the fixed
+build -> clean. FIX: ConversationStore.getServerState() — frozen pristine-default snapshot
+captured before the persisted restore (referentially stable per React's contract), wired as
+the getServerSnapshot in use-conversation + use-orchestrator's inputMode (a hands-free user
+would mismatch the talk controls). Pattern already existed in use-capabilities.ts ("hydration
+safe BY CONSTRUCTION") — conversation store just never got it. Other subscription sites
+audited: emotion/stt-status/kokoro-status snapshots are runtime-default symmetric, safe.
+ALSO: troubleshooting.md §6 gained the untrustworthy-origin case (COOP ignored on plain-HTTP
+non-localhost; remedies: localhost / tailscale serve / HTTPS tunnel) — the second console
+error is environmental, not a bug. THREE.Clock deprecation = transitive three.js dep, not
+ours, left alone. Gallery: face-hermes.png fetched from the Pi -> 06-pi-arm64-hermes-memory
+.png, now the preferred PH shot ("an AI agent gave itself a face — and it remembers").
+Verify (all RUN, $? captured directly): conversation tests RED(2)->GREEN; npm test EXIT=0;
+npm run verify EXIT=0; npm run verify:linux EXIT=0; sync-template run (3 mirrors).
+UAT: [frontend] dasbrow pulls + rebuilds on the Pi and confirms the glitching is gone in
+Felipe's browser (the state-carrying one that repro'd it).

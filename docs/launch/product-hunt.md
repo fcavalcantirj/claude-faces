@@ -54,9 +54,11 @@ launch day.
 2. `gallery/02-speaking.png` — mouth open, SPEAKING readout
 3. `gallery/03-love.png` — heart-eyes, pink particles ("BOND PROTOCOL // AFFINITY MAX")
 4. `gallery/04-glitch.png` — glitch mode
-5. `gallery/05-pi-arm64-modeb.png` — captured by an autonomous agent that installed the
-   skill on its own Raspberry Pi (arm64) and wired Mode B; a real reply is visible in the
-   transcript. Caption honestly: "installed and wired by an AI agent on a Raspberry Pi."
+5. `gallery/06-pi-arm64-hermes-memory.png` — THE proof shot: an autonomous agent installed
+   the skill on its own Raspberry Pi, wired the face to its OWN running Hermes brain
+   (Mode B, kind=hermes), and the transcript shows identity AND cross-turn memory.
+   Caption: "an AI agent gave itself a face — and it remembers."
+   (`gallery/05-pi-arm64-modeb.png` is the earlier persona-only variant, spare.)
 6. `public/screenshots/demo.gif` — motion (upload as the animated slot)
 
 ## Launch-day checklist

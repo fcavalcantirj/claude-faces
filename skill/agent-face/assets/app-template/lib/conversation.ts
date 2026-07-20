@@ -134,6 +134,14 @@ export interface ConversationStoreOptions {
 export interface ConversationStore {
   /** The current immutable state snapshot (stable ref until a mutation). */
   getState(): ConversationState
+  /**
+   * The snapshot for server rendering AND the client's hydration render
+   * (useSyncExternalStore's getServerSnapshot). Always the pristine default —
+   * never the localStorage-restored state — so hydration matches the server
+   * HTML; the persisted state appears in the first post-hydration render.
+   * Referentially stable by contract.
+   */
+  getServerState(): ConversationState
   /** Subscribe to changes; returns an unsubscribe fn (for useSyncExternalStore). */
   subscribe(listener: () => void): () => void
   /** Record a user turn and return it. */
@@ -298,6 +306,14 @@ export function createConversationStore(
     options.idFactory ?? (() => `turn-${now()}-${++idCounter}`)
   const baseSystem = options.system ?? DEFAULT_PERSONA_PROMPT
 
+  // Captured BEFORE the persisted restore: what the server renders, and what
+  // the client's hydration render must reproduce (see getServerState).
+  const serverState: ConversationState = Object.freeze({
+    turns: [],
+    settings: emptySettings(),
+    system: baseSystem,
+  })
+
   const restored = loadPersisted(storage, baseSystem)
   let state: ConversationState = {
     turns: restored?.turns ?? [],
@@ -349,6 +365,7 @@ export function createConversationStore(
 
   return {
     getState: () => state,
+    getServerState: () => serverState,
     subscribe(listener) {
       listeners.add(listener)
       return () => {

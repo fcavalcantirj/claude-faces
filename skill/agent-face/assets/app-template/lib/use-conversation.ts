@@ -73,7 +73,11 @@ export function useConversation(
   const state = useSyncExternalStore(
     store.subscribe,
     store.getState,
-    store.getState,
+    // Hydration-safe by construction: the server snapshot is the pristine
+    // default, so the client's hydration render matches the server HTML even
+    // when localStorage holds a restored conversation (React #418 on any
+    // state-carrying browser otherwise — found on the Pi deployment).
+    store.getServerState,
   )
 
   const addUserTurn = useCallback(

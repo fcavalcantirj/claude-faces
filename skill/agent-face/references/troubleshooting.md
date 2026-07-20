@@ -177,6 +177,16 @@ headers. The app sets them site-wide in `next.config.mjs`
 self.crossOriginIsolated         // must be true
 ```
 
+**Remote over plain HTTP? The headers are IGNORED.** Browsers only honor
+COOP/COEP on a *trustworthy origin* — `localhost` or HTTPS. Serving the app
+over `http://<lan-or-tailnet-ip>:3000` logs
+"The Cross-Origin-Opener-Policy header has been ignored, because the URL's
+origin was untrustworthy" and `crossOriginIsolated` stays false: the face and
+hosted STT/TTS still work, but the in-browser Whisper thread pool won't.
+Remedies: open it on the machine itself via `localhost`; on a tailnet, put
+HTTPS in front with `tailscale serve 3000` (one command, trusted cert); or
+any HTTPS tunnel/reverse proxy (cloudflared, caddy).
+
 ```bash
 # confirm the headers actually ship (adjust host for your deploy)
 curl -sI http://localhost:3000/ | grep -iE 'cross-origin-(opener|embedder)-policy'
