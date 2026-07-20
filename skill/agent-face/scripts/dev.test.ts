@@ -7,7 +7,7 @@
 // in a separate process and asserting `dev.mjs --kill-only` takes it down and
 // leaves the port free — plus the CLI contract (--help, bad args).
 
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { spawnSync, spawn, type ChildProcess } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
@@ -170,6 +170,48 @@ describe("freePort (in-process)", () => {
     const logs: string[] = [];
     const { freePort } = await import("./dev.mjs");
     await freePort(port, (m: string) => logs.push(m), { appDir: process.cwd() });
+    expect(logs.join("\n")).toMatch(/already free/i);
+  });
+});
+
+describe("freePort distrusts an empty scan (the Pi orphan finding)", () => {
+  // Field report: an orphaned next-server (tmux killed, child reparented to
+  // init) held :3000 but the PID scan came back empty, freePort said
+  // "already free", and next dev died with EADDRINUSE. Whatever makes the
+  // scan lie on a given box, an empty answer must be cross-checked against
+  // a real TCP connect before declaring the port free.
+  it("refuses (exit 3) when the scan sees nobody but a listener answers", async () => {
+    const port = await getFreePort();
+    const decoy = await spawnDecoy(port, tmpdir());
+    const logs: string[] = [];
+    const exitSpy = vi
+      .spyOn(process, "exit")
+      .mockImplementation(((code?: number) => {
+        throw new Error(`exit:${code}`);
+      }) as never);
+    try {
+      const { freePort } = await import("./dev.mjs");
+      await expect(
+        freePort(port, (m: string) => logs.push(m), {
+          appDir: process.cwd(),
+          findPids: () => [], // simulate the lying scan
+        }),
+      ).rejects.toThrow("exit:3");
+      expect(logs.join("\n")).toMatch(/occupied|identify/i);
+    } finally {
+      exitSpy.mockRestore();
+      decoy.kill("SIGKILL");
+    }
+  }, 15000);
+
+  it("still reports a genuinely free port as free", async () => {
+    const port = await getFreePort();
+    const logs: string[] = [];
+    const { freePort } = await import("./dev.mjs");
+    await freePort(port, (m: string) => logs.push(m), {
+      appDir: process.cwd(),
+      findPids: () => [],
+    });
     expect(logs.join("\n")).toMatch(/already free/i);
   });
 });

@@ -2932,3 +2932,24 @@ flags documented + unknown-flag non-zero) so the PORTABLE test half covers it to
 Verify (all RUN, $? captured directly): npm run test:skill EXIT=0 (new section green);
 npm run verify EXIT=0 (6/6); npm run verify:linux EXIT=0; sim ports empty after teardown;
 :3100/:8787 (Felipe's live face) untouched throughout.
+
+2026-07-20: [skill] CROSS-MACHINE VALIDATION by dasbrow (autonomous peer agent, Raspberry Pi
+arm64, HERMES harness) + the orphan-listener finding FIXED. Dasbrow's evidence (Solvr room
+msg 651, house protocol, exit codes captured directly): skill AUTO-DISCOVERED by a real
+non-Claude harness (the last unverified portability claim — closed); Mode B via the repo
+claude-code bridge WORKING on arm64 (config agentBridge:true, streamed turn EXIT=0, headless
+screenshot with reply visible); arm64 smoke 33/33 EXIT=0 (first run of the port-guard /proc
+path off x86/mac). Honesty note that improved the docs: dasbrow initially claimed the bridge
+"answers as me" — Felipe caught that it was a FRESH SDK session; backends.md now states each
+turn spawns a fresh session whose identity is the BOX'S Claude Code context, and that
+answers-as-a-running-agent is the hermes/openclaw/openai-compatible kinds.
+FINDING (dasbrow): orphaned next-server (tmux killed -> child reparented to init, still
+LISTENing on :::3000) was reported "already free" by freePort -> next dev EADDRINUSE. Could
+NOT reproduce the empty scan on x86 Debian (container repro: /proc path AND lsof both find a
+detached v6-bound orphan; diagnostics requested from the Pi to name the lying strategy).
+FIXED the design flaw regardless: freePort no longer trusts an empty scan — every
+"already free" is cross-checked with a real TCP connect (assertReallyFree); an invisible
+holder now exits 3 with ss/lsof instructions instead of lying. guard.findPids injectable for
+tests. dev.mjs trimmed back under the 500-line rule (497).
+Verify (all RUN, $? captured directly): new invisible-holder test RED->GREEN (12/12);
+npm run verify EXIT=0; npm run verify:linux EXIT=0.

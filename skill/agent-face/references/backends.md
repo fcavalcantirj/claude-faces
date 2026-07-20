@@ -129,6 +129,15 @@ server that wraps the Claude Agent SDK's `query()` behind
 `/v1/chat/completions`, so the face talks to **your own Claude Code agent on
 your own subscription login**.
 
+Be precise about what "your own agent" means here (a real deployment got this
+wrong): each turn spawns a **fresh** Agent SDK session. Its identity comes
+entirely from that machine's Claude Code context — `CLAUDE.md`, memory files,
+tools — not from any live conversation state. On a box with a rich setup it
+answers like your agent; on a bare login it is stock Claude wearing the face
+persona. For a face that answers as a **running** agent with live memory, use
+the `hermes` / `openclaw` / `openai-compatible` kinds pointed at that agent's
+own endpoint instead.
+
 ```bash
 cd bridge && npm install && npm start        # 127.0.0.1:8787
 # .env.local in the app:

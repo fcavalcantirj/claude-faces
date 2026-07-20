@@ -277,14 +277,29 @@ async function waitForPortClear(port, timeoutMs) {
   return pids;
 }
 
+// An empty PID scan is NOT proof of freedom (field report: an orphaned
+// next-server LISTENed while the scan said empty; "already free" then died
+// as EADDRINUSE). Cross-check with a real TCP connect before declaring it.
+async function assertReallyFree(port, log) {
+  if (await canConnect(port)) {
+    log(
+      `✗ Port ${port} is occupied but no holder could be identified — ` +
+        `refusing to pretend it is free. Find it (\`ss -ltnp\` / ` +
+        `\`lsof -i tcp:${port}\`) and stop it, or use --port <n>.`,
+    );
+    process.exit(3);
+  }
+  log(`✓ Port ${port} is already free.`);
+}
+
 // The load-bearing step: guarantee the port is free before we start — but
 // only auto-kill processes portguard can tie to THIS app. A foreign holder
 // (another project's server) is refused with exit 3 unless takePort is set.
 export async function freePort(port, log = console.error, guard = {}) {
-  const { appDir = process.cwd(), takePort = false } = guard;
-  let initial = findPidsOnPort(port);
+  const { appDir = process.cwd(), takePort = false, findPids = findPidsOnPort } = guard;
+  let initial = findPids(port);
   if (initial.length === 0) {
-    log(`✓ Port ${port} is already free.`);
+    await assertReallyFree(port, log);
     return;
   }
 
@@ -301,7 +316,7 @@ export async function freePort(port, log = console.error, guard = {}) {
   });
   if (initial.length === 0) {
     await waitForPortClear(port, 1000);
-    log(`✓ Port ${port} is already free.`);
+    await assertReallyFree(port, log);
     return;
   }
 
@@ -320,7 +335,7 @@ export async function freePort(port, log = console.error, guard = {}) {
   });
   if (infos.length === 0) {
     await waitForPortClear(port, 1000);
-    log(`✓ Port ${port} is already free.`);
+    await assertReallyFree(port, log);
     return;
   }
 
