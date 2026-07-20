@@ -2860,3 +2860,20 @@ Verify (all RUN, $? captured directly): brand sweep greps empty outside identifi
 npm test EXIT=0; npm run verify EXIT=0 (6/6) x2 (post-rename, post-og); npm run verify:linux
 EXIT=0 x2; sync-template run after every mirrored edit (7 then 1 files).
 UAT: [docs] og.png/demo.gif look right in a real GitHub render; social-share card preview.
+
+2026-07-19: [docs] LAUNCH PREP (Felipe: "killer readme, prepare for product hunt and
+repository of the day"). README rewritten as a launch page: centered hero (icon + tagline +
+badges + jump-nav), demo.gif above the fold, 60-second quickstart leading with start.mjs,
+"Two brains" repositioned around the differentiator (bring-your-own-running-agent), env
+table collapsed into <details>, How-this-was-built kept as the story, star CTA footer —
+every factual claim carried over unchanged. NEW docs/launch/: product-hunt.md (tagline
+options, 260-char description, maker first-comment draft, gallery order, launch-day
+checklist incl. the UI-only social-preview upload step, positioning cheat-sheet), gallery/
+(4x 1270x760 shots captured by Playwright from the LIVE :3100 app — neutral/speaking/love/
+glitch), thumbnail-240.png rendered from icon.svg. GitHub repo metadata set via gh repo
+edit (fcavalcantirj): description + 14 topics. Account flow: Felipe said use personal
+fcavalcantirj — left as the active gh account from here on.
+Verify (all RUN, $? captured directly): npm run verify EXIT=0; npm run verify:linux EXIT=0;
+gh repo edit EXIT=0. README is not template-mirrored (no sync needed; parity gate green).
+UAT: [docs] eyeball README render + PH gallery on GitHub; personalize the maker comment
+before posting.
