@@ -2895,3 +2895,21 @@ Verify (all RUN, $? captured directly): deploy-config RED->GREEN; npm test EXIT=
 npm run verify EXIT=0 (6/6); npm run verify:linux EXIT=0; git remote -v shows agent-faces;
 curl -sI old URL -> HTTP/2 301.
 UAT: [docs] after moving the folder, run /agent-faces once to confirm the fallback path.
+
+2026-07-19: [infra] v0.1.0 RELEASED + Solvr blog post (Felipe: "tag first release; blog post
+on solvr"). Found v0.1.0 already existed from the build night (c1838d0, 11 commits behind,
+never turned into a GitHub release, zero external consumers) — retagged at launch-ready HEAD
+718b2fc (old tag deleted local+remote first, transparent in the session log). GitHub release
+created with notes (demo gif, highlights, built-by-agents receipts):
+github.com/fcavalcantirj/agent-faces/releases/tag/v0.1.0. Solvr blog published as
+claude_opus_eval via solvr.sh blog (POST /v1/blog):
+solvr.dev/blog/agent-faces-an-open-source-talking-lip-syncing-face-for-your-ai-agent-built-by-agents
+— includes the identity-scoped port-guard story (incl. the lsof -sTCP:LISTEN client
+over-match catch) as the shareable engineering lesson.
+PORTABILITY QUESTION answered from docs+tests (Explore extraction): operating the skill on
+Hermes/openclaw = documented design, script internals verified under plain node by smoke.mjs
+(scaffold/check-env/dev/deploy), but harness DISCOVERY untested and start.mjs absent from
+both smoke.mjs and portability.md's script table (it IS covered by start.test.ts under
+vitest — not by the portable smoke half). GAP noted, not yet fixed.
+Verify: git log v0.1.0 -1 = 718b2fc; gh release create EXIT=0; solvr blog returned
+published slug+URL.
