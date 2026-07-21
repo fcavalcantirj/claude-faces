@@ -251,7 +251,7 @@ export function ServerEnvPanel({ onBack, onSaved, fetchImpl }: ServerEnvPanelPro
                     setDraftValue(!spec.secret && state?.value ? state.value : '')
                     setRowMsg(null)
                   }}
-                  className="rounded-sm border border-border/60 px-2 py-0.5 text-[10px] tracking-wider text-muted-foreground hover:text-foreground"
+                  className="rounded-sm border border-border/60 px-2 py-0.5 text-[10px] tracking-wider text-muted-foreground transition-colors hover:border-accent hover:bg-accent/10 hover:text-accent"
                 >
                   {set ? 'EDIT' : 'SET'}
                 </button>
@@ -260,7 +260,7 @@ export function ServerEnvPanel({ onBack, onSaved, fetchImpl }: ServerEnvPanelPro
                     type="button"
                     disabled={busy}
                     onClick={() => void save(spec.name, null)}
-                    className="rounded-sm border border-border/60 px-2 py-0.5 text-[10px] tracking-wider text-muted-foreground hover:border-red-400 hover:text-red-400"
+                    className="rounded-sm border border-border/60 px-2 py-0.5 text-[10px] tracking-wider text-muted-foreground transition-colors hover:border-red-400 hover:bg-red-950/40 hover:text-red-400"
                   >
                     CLEAR
                   </button>
@@ -298,7 +298,13 @@ export function ServerEnvPanel({ onBack, onSaved, fetchImpl }: ServerEnvPanelPro
                 type={spec.secret ? 'password' : 'text'}
                 value={draftValue}
                 onChange={(e) => setDraftValue(e.target.value)}
-                placeholder={spec.secret ? 'value stays on the server' : 'value'}
+                placeholder={
+                  spec.secret
+                    ? set
+                      ? 'current value hidden — type a NEW one to replace it'
+                      : 'value stays on the server'
+                    : 'value'
+                }
                 autoComplete="off"
                 className="flex-1 rounded-sm border border-border/60 bg-card px-3 py-2 font-mono text-xs placeholder:text-muted-foreground/50 focus:border-accent focus:outline-none"
               />
@@ -306,11 +312,16 @@ export function ServerEnvPanel({ onBack, onSaved, fetchImpl }: ServerEnvPanelPro
             <button
               type="submit"
               disabled={busy || !draftValue}
-              className="rounded-sm border border-border/60 px-2 py-1 text-[10px] tracking-wider hover:border-accent disabled:opacity-40"
+              className="rounded-sm border border-border/60 px-2 py-1 text-[10px] tracking-wider transition-colors hover:border-accent hover:bg-accent/10 hover:text-accent disabled:opacity-40"
             >
               SAVE
             </button>
           </form>
+        ) : null}
+        {isEditing && spec.secret ? (
+          <span className="text-[10px] text-muted-foreground/60">
+            Write-only by design: the current value never leaves the server, for anyone.
+          </span>
         ) : null}
         {spec.help?.length || spec.docsUrl ? (
           <details className="text-[10px] leading-relaxed text-muted-foreground/70">
@@ -345,7 +356,7 @@ export function ServerEnvPanel({ onBack, onSaved, fetchImpl }: ServerEnvPanelPro
         <button
           type="button"
           onClick={onBack}
-          className="rounded-sm border border-border/60 px-2 py-1 text-xs tracking-wider text-muted-foreground hover:text-foreground"
+          className="rounded-sm border border-border/60 px-2 py-1 text-xs tracking-wider text-muted-foreground transition-colors hover:border-accent hover:bg-accent/10 hover:text-accent"
         >
           ← SETTINGS
         </button>
@@ -398,7 +409,7 @@ export function ServerEnvPanel({ onBack, onSaved, fetchImpl }: ServerEnvPanelPro
           <button
             type="submit"
             disabled={draftPassword.length < 12 || draftPassword !== draftConfirm}
-            className="self-start rounded-sm border border-border/60 px-3 py-2 text-xs tracking-wider hover:border-accent disabled:cursor-not-allowed disabled:opacity-40"
+            className="self-start rounded-sm border border-border/60 px-3 py-2 text-xs tracking-wider transition-colors hover:border-accent hover:bg-accent/10 hover:text-accent disabled:cursor-not-allowed disabled:opacity-40"
           >
             CREATE PASSWORD
           </button>
@@ -425,7 +436,7 @@ export function ServerEnvPanel({ onBack, onSaved, fetchImpl }: ServerEnvPanelPro
             <button
               type="submit"
               disabled={!draftPassword}
-              className="rounded-sm border border-border/60 px-3 py-2 text-xs tracking-wider hover:border-accent disabled:opacity-40"
+              className="rounded-sm border border-border/60 px-3 py-2 text-xs tracking-wider transition-colors hover:border-accent hover:bg-accent/10 hover:text-accent disabled:opacity-40"
             >
               UNLOCK
             </button>
@@ -450,7 +461,7 @@ export function ServerEnvPanel({ onBack, onSaved, fetchImpl }: ServerEnvPanelPro
         <button
           type="button"
           onClick={() => setShowAll((v) => !v)}
-          className="self-start rounded-sm border border-border/60 px-2 py-1 text-[10px] tracking-widest text-muted-foreground hover:text-foreground"
+          className="self-start rounded-sm border border-border/60 px-2 py-1 text-[10px] tracking-widest text-muted-foreground transition-colors hover:border-accent hover:bg-accent/10 hover:text-accent"
         >
           {showAll ? 'HIDE' : `SHOW ALL (${rows.more.length} more)`}
         </button>

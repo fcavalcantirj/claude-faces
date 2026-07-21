@@ -3285,3 +3285,20 @@ EXIT=0 (682); npm run verify EXIT=0; npm run verify:linux EXIT=0; sync-template 
 UAT: [settings] Felipe: Settings → SERVER ENV → type a 12+ char password twice (the
 hint now counts down) → CREATE → auto-unlock → set any var. Stack is RUNNING on :3100
 in first-run state.
+
+2026-07-21: [uat+polish] FELIPE'S UAT: "worked" — password created in the GUI, unlocked,
+two vars set (OPENAI_API_KEY, AGENT_BRIDGE_KIND/URL visible SET in his screenshot). Two
+follow-ups from his session, both shipped: (1) HOVER was imperceptible on the panel
+buttons — all EDIT/SET/CLEAR/SAVE/UNLOCK/CREATE/SHOW-ALL/back buttons now get
+transition-colors + border-accent + bg-accent/10 + text-accent on hover (CLEAR gets the
+red variant); a control with no hover feedback reads as dead. (2) His "click EDIT and
+nothing appears" on OPENAI_API_KEY was the WRITE-ONLY SECRET design meeting zero
+explanation: the editor opened with an empty input because secret values NEVER come back
+from the server (contract) — unlike non-secret rows (bridge kind/URL) which prefill.
+Fix is honesty, not data: a set secret's editor now says "current value hidden — type a
+NEW one to replace it" + a caption "Write-only by design: the current value never leaves
+the server, for anyone."
+Verify (all RUN, $? captured directly): npm test EXIT=0 (682); npm run verify EXIT=0;
+npm run verify:linux EXIT=0; sync-template run.
+UAT: [settings] hover glow visible on all SERVER ENV buttons; EDIT on a set secret shows
+the replace-hint placeholder instead of a bare empty box.
