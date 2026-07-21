@@ -230,13 +230,14 @@ async function main() {
     if (pw) {
       try {
         writeFileSync(settingsEnvPath, upsertPasswordHashLine(settingsEnvContent, hashPassword(pw)));
-        console.log("settings: password set — SERVER ENV editing is unlocked in the GUI.");
+        console.log(`settings: password set → ${settingsEnvPath} — SERVER ENV unlocks on THIS server.`);
       } catch (err) {
         console.error(`settings: ${String(err?.message ?? err)} — skipped.`);
       }
     } else if (args.passwordPrompt) {
       console.log(
-        "settings: no password set — the GUI env editor stays off.\n" +
+        "settings: no password set — the GUI env editor stays off on THIS server.\n" +
+          "  Each deployment (Mac, Pi, …) needs its own password in its own .env.local.\n" +
           "  Later: node skill/agent-face/scripts/settings-password.mjs",
       );
     }

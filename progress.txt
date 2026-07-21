@@ -3216,3 +3216,27 @@ npm test EXIT=0 (675); npm run verify EXIT=0; npm run verify:linux EXIT=0; sync-
 run.
 UAT: [settings] Felipe re-runs the launcher in a real terminal (the ! bridge is not a TTY
 — prompt skips by design there), sets the password, and the SERVER ENV unlock now works.
+
+2026-07-21: [rootcause] "BUG PERSISTS" WAS TWO RIGS, ONE PASSWORD (Felipe: solvr+TDD it).
+FACTS ESTABLISHED FIRST: Mac .env.local mtime = Jul 19 (NO provisioning ever wrote it);
+NO agent-faces server running locally at all (only Plant Faces on :3000, foreign); the
+Pi (100.82.152.25:3000) serves the face AND its /api/env returns 404 — the Pi runs the
+NEW build (dasbrow deployed silently) with NO password provisioned THERE. So the panel
+Felipe pasted was the PI truthfully reporting its own unprovisioned state while the
+password attempts happened on the MAC — a password on one rig can never unlock another
+(each deployment has its own .env.local; by design, per the security review). NOT a code
+regression. REAL DEFECT found en route via PTY repro (script(1) + piped stdin) and fixed
+TDD: promptForPassword hardcoded process.stdin AND never resolved when readline closed
+without a line (EOF/^D) — the launcher would HANG silently at the prompt. Fix: injectable
+{input, output} streams + close-handler resolving '' + once-guard; RED tests (typed-line
+resolve + EOF-no-hang race) → GREEN. Launcher messages now name WHICH .env.local they
+touched ("password set → <path> — SERVER ENV unlocks on THIS server") and the skip note
+says each deployment needs its own password. Solvr searched first (top hit: solved
+interactive-stdin-sequence problem — same class: prompts must handle EOF explicitly).
+Verify (all RUN, $? captured directly): settings-password suite RED(2 HUNG)→GREEN (25
+launcher tests); npm test EXIT=0 (677); npm run verify EXIT=0; npm run verify:linux
+EXIT=0.
+UAT: [settings] Mac: launcher in a real terminal → prompt → "password set → /Users/.../
+.env.local" line → unlock ON LOCALHOST:3100. [settings-pi] Pi: provision its OWN hash
+(settings-password.mjs → paste line into the Pi's .env.local + FACE_SETTINGS_ALLOW_REMOTE=1
+→ restart) — dasbrow's court via the room, or Felipe over ssh.

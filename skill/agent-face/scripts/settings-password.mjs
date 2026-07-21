@@ -52,10 +52,23 @@ export function upsertPasswordHashLine(content, hashLineValue) {
   return `${content}${sep}${line}\n`;
 }
 
-/** Muted TTY prompt (echoes nothing). Resolves '' when the user just hits Enter. */
-export function promptForPassword(question) {
+/**
+ * Muted prompt. Resolves '' when the user just hits Enter — and ALSO on
+ * EOF/closed stdin (^D, piped input running dry): an unresolved promise here
+ * hangs the whole launcher silently (found via PTY repro, 2026-07-20).
+ * Streams injectable for tests; defaults to the real TTY.
+ */
+export function promptForPassword(question, { input = process.stdin, output = process.stdout } = {}) {
   return new Promise((resolve) => {
-    const rl = createInterface({ input: process.stdin, output: process.stdout, terminal: true });
+    const rl = createInterface({ input, output, terminal: true });
+    let settled = false;
+    const finish = (answer) => {
+      if (settled) return;
+      settled = true;
+      rl.close();
+      output.write("\n");
+      resolve(answer);
+    };
     // Suppress echo: readline's documented-enough internal hook; worst case a
     // non-supporting runtime just echoes (still functional).
     const anyRl = rl;
@@ -64,11 +77,10 @@ export function promptForPassword(question) {
         this.output.write(chunk);
       }
     };
-    rl.question(question, (answer) => {
-      rl.close();
-      process.stdout.write("\n");
-      resolve(answer);
-    });
+    rl.question(question, finish);
+    // EOF / stream close without a line: readline fires 'close' and the
+    // question callback never runs — treat as "skipped", never hang.
+    rl.on("close", () => finish(""));
   });
 }
 
