@@ -56,5 +56,9 @@ export function loadEnv(env = process.env) {
     permissionMode: env.CLAUDE_BRIDGE_PERMISSION_MODE || "acceptEdits",
     cwd: env.CLAUDE_BRIDGE_CWD || null,
     allowMeteredKey: isTruthy(env.CLAUDE_BRIDGE_ALLOW_API_KEY),
+    // The warm-session escape hatch: "0" reverts to one subprocess per turn
+    // (today-parity behavior) — an operational rollback and the A/B lever for
+    // latency measurement. Anything else (including unset) stays warm.
+    warm: env.CLAUDE_BRIDGE_WARM !== "0",
   };
 }

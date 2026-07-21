@@ -3312,3 +3312,51 @@ state AND a pointer cursor, and every disabled control must SAY why it is disabl
 anything less reads as broken.
 Verify: npm test EXIT=0 (682); npm run verify EXIT=0; npm run verify:linux EXIT=0;
 sync-template run.
+
+2026-07-21: [backend] WARM PERSISTENT BRIDGE SESSION (latency win #1 of Felipe's GO) —
+the bridge now holds ONE streaming-input SDK query open across turns; the per-turn CLI
+subprocess spawn (~1.1s warm / ~2.0s fresh, paid EVERY turn, measured 2026-07-20) is
+now paid once per conversation. HOW: bridge/src/session.mjs reworked in place — a
+push-queue AsyncIterable is the query() prompt (the first turn's message is buffered
+before the SDK ever pulls, so spawn + turn 1 = one round trip); each later turn pushes
+one SDKUserMessage and slices the shared output generator to its result boundary. No
+background pump: only a clean success at a result boundary lets a handle survive a
+turn, so a half-consumed stream can never leak forward. DISCIPLINE (Felipe's named
+requirements): conversation reset (no assistant turns) closes the warm query and opens
+fresh with NO resume — zero context bleed (W2); a systemText change recycles with
+resume (W6); abort/timeout/any failure closes the handle and the next turn rebuilds
+cold with resume — stale resume retires the id, digest fallback (W3/W3b/W4/W5/W8);
+barge-in = interrupt + close, one respawn on the following turn (the approved trade).
+CLAUDE_BRIDGE_WARM=0 is the escape hatch AND the A/B lever: same machinery, closes
+after each success = today-parity per-turn spawn with resume (W11 + the legacy
+stale-resume pins live there). [bridge-timing] gains warm:true/false; initMs is
+cold-only (a warm turn's result-carried session event would otherwise report
+initMs≈totalMs — caught at design time). server.mjs shutdown() now calls
+session.close() — pre-existing gap: NOTHING reaped the SDK subprocess on SIGTERM.
+ADVERSARIAL REVIEW (ultracode: 3 lenses + 3 refuters per finding) caught 2 real
+defects pre-commit, both fixed TDD: (1) the reworked test fake broke npm run typecheck
+(25 TS2322 contravariance errors — refuters verified against a clean HEAD worktree);
+(2) close() during an in-flight turn let the retry path RESPAWN a subprocess after
+shutdown, orphaned mid-model-turn — fixed with a closeRequested latch (W12 RED→GREEN;
+close between turns still allows reopen, W10). USAGE-METER NOTE: the verifier fleet
+died on the Anthropic session limit mid-review (reset 4:30am) — 4 unverified findings
+were judged inline instead: 2 were the latch defect (fixed above); 2 accepted with
+bounded fallbacks (between-turn SDK messages confusing the slice; resume racing the
+dead process's session-file flush — both would surface instantly in the Task-4 live
+smoke). A post-reset race-lens re-run traced 7 async/concurrency probes clean —
+verdict SHIP — and prompted the new eager-pump queue test (the real SDK pulls
+continuously; the scripted fake pulls lockstep and never parked a pending pull).
+PRE-EXISTING OBSERVATION (untouched, Felipe's call): server.mjs registers
+res.on('close') AFTER the up-to-5s acquireTurn wait, so a client that disconnects
+DURING the lock wait runs its turn un-abortable to completion. WATCH ITEM #2 VERIFIED
+IN CODE: the app's systemText is byte-stable across a conversation
+(conv.getState().system = persisted persona, only setSystem changes it; the adapter
+prepends it identically every request; bridge joins deterministically) — warm reuse
+WILL engage on the real app path; Task 4 must still observe warm:true live.
+Verify (all RUN, $? captured directly): session suite RED(27 fail: fake shape +
+unimplemented warm)→GREEN; W12 RED→GREEN; bridge 78/78 incl. roundtrip.test.ts
+UNTOUCHED (the SSE wire guard); npm run typecheck EXIT=0; npm test EXIT=0; npm run
+verify EXIT=0 (6 gates); npm run verify:linux EXIT=0. bridge/ is not templated — no
+sync-template needed.
+UAT: [latency] deferred to Task 4: live warm:true observed in [bridge-timing] on the
+real app path + deltas vs the 2026-07-20 baseline.

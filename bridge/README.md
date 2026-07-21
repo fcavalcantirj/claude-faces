@@ -77,18 +77,30 @@ voice-driven interface**: a misheard sentence becomes an agent action with no co
 click. Owner's machine, owner's rules — but that is the trade.
 | `CLAUDE_BRIDGE_CWD` | *(none)* | Working directory for the agent |
 | `CLAUDE_BRIDGE_ALLOW_API_KEY` | off | Explicitly allow metered-key billing (see above) |
+| `CLAUDE_BRIDGE_WARM` | on | `0` reverts to one CLI subprocess per turn (the pre-warm behavior) — rollback lever if the warm session misbehaves |
 
 ## Behaviour notes
 
+- **Warm session**: the bridge holds ONE streaming-input SDK query open across turns, so
+  follow-up turns skip the CLI subprocess spawn (~1.1–2.0s each, measured 2026-07-20).
+  A conversation reset (history with no assistant turns) closes the warm query and opens
+  a fresh one — old context can never bleed into a new conversation. A changed system
+  prompt also recycles the query (`resume` carries the context across), so a persona
+  that varies per request silently costs a respawn every turn — keep it stable.
+  `[bridge-timing]` lines carry `warm:true/false` per attempt; `initMs` only exists on
+  opening (cold) attempts.
 - **Sessions**: OpenAI clients replay full history; the bridge sends only the latest user
-  message and `resume`s the SDK session captured from the init message. A history with no
-  assistant turns starts a fresh session. If the bridge restarted (or the resume id went
-  stale), it retries once fresh with a bounded *continuity digest* of the replayed tail.
+  message — into the open query while it lives, via `resume` when rebuilding after a
+  failure, abort, timeout, or restart. If no resume id is stored, the rebuild goes fresh
+  with a bounded *continuity digest* of the replayed tail; a stale resume id is retired
+  after one failed attempt.
 - **Text only**: no OpenAI `tool_calls` are ever emitted. Server-side tools (web search etc.)
   deliver their results inside the assistant text; projecting them as `tool_calls` would
   create dangling `tool_call_id`s on replay. The face only reads `delta.content` anyway.
 - **One turn at a time**: a concurrent second request briefly waits, then gets `429`.
-- **Barge-in**: client disconnect aborts the SDK query (and its CLI subprocess) immediately.
+- **Barge-in**: client disconnect aborts the turn and closes the warm query (its CLI
+  subprocess included) immediately; the NEXT turn rebuilds via `resume`, so an
+  interrupted conversation keeps its context at the cost of one respawn.
 - **Keepalive**: `: keepalive` SSE comments every 30s of silence keep proxies from killing
   long thinking/tool turns.
 - The SDK message shapes this bridge projects were written against the Agent SDK docs as of

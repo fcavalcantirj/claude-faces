@@ -20,6 +20,7 @@ export function createBridgeServer({ env, queryFn, log = () => {}, lockWaitMs = 
     model: env.model,
     permissionMode: env.permissionMode,
     cwd: env.cwd,
+    warm: env.warm,
     // One log line per attempt: spawn+resume+TTFT attribution for the
     // measurement sessions (undefined marks are dropped by stringify).
     onTiming: (t) => log("[bridge-timing] " + JSON.stringify(t)),
@@ -175,7 +176,7 @@ export async function main() {
   assertSubscriptionAuth(process.env);
   const env = loadEnv(process.env);
   const queryFn = await loadQuery();
-  const { server } = createBridgeServer({
+  const { server, session } = createBridgeServer({
     env,
     queryFn,
     log: (line) => console.error(`[bridge] ${line}`),
@@ -195,6 +196,9 @@ export async function main() {
 
   const shutdown = () => {
     console.error("[bridge] shutting down");
+    // Reap the warm SDK subprocess FIRST (synchronous abort+close) — the HTTP
+    // server owns no child processes; the session does.
+    session.close();
     server.close(() => process.exit(0));
     setTimeout(() => process.exit(0), 2_000).unref();
   };

@@ -53,6 +53,13 @@ describe("loadEnv", () => {
     expect(e.model).toBeNull();
     expect(e.permissionMode).toBe("acceptEdits");
     expect(e.allowMeteredKey).toBe(false);
+    expect(e.warm).toBe(true);
+  });
+
+  it("CLAUDE_BRIDGE_WARM=0 is the warm-session escape hatch (anything else stays on)", () => {
+    expect(loadEnv({ CLAUDE_BRIDGE_WARM: "0" }).warm).toBe(false);
+    expect(loadEnv({ CLAUDE_BRIDGE_WARM: "1" }).warm).toBe(true);
+    expect(loadEnv({ CLAUDE_BRIDGE_WARM: "" }).warm).toBe(true);
   });
 
   it("reads overrides", () => {
