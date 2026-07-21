@@ -15,6 +15,8 @@ import type { EnvVarSpec } from '@/lib/settings/env-registry'
 interface EnvInventory {
   writable: boolean
   reason?: string
+  /** True on an unprovisioned rig when the requester is localhost (first run). */
+  bootstrap?: boolean
   unlocked: boolean
   vars: Record<string, { set: boolean; value?: string }>
 }
@@ -34,7 +36,7 @@ export interface ServerEnvPanelProps {
 
 const REASON_GUIDANCE: Record<string, string> = {
   no_password:
-    'No settings password is provisioned. Run the launcher (node skill/agent-face/scripts/start.mjs — it prompts for one) or generate a FACE_SETTINGS_PASSWORD_HASH line with node skill/agent-face/scripts/settings-password.mjs and add it to .env.local, then restart.',
+    'No settings password is provisioned on THIS server. From the machine running it, open http://localhost:<port> and create one right here in SERVER ENV — or generate a FACE_SETTINGS_PASSWORD_HASH line with node skill/agent-face/scripts/settings-password.mjs and add it to that machine’s .env.local, then restart.',
   readonly_platform:
     'Read-only here: on Vercel, env vars are managed in your project dashboard (Settings → Environment Variables); changes apply on redeploy.',
   insecure_transport:
@@ -62,6 +64,7 @@ export function ServerEnvPanel({ onBack, onSaved, fetchImpl }: ServerEnvPanelPro
   // The accepted password lives in memory for this page load only.
   const [password, setPassword] = useState('')
   const [draftPassword, setDraftPassword] = useState('')
+  const [draftConfirm, setDraftConfirm] = useState('')
   const [unlockError, setUnlockError] = useState<string | null>(null)
   const [showAll, setShowAll] = useState(false)
   const [editing, setEditing] = useState<string | null>(null)
@@ -165,10 +168,41 @@ export function ServerEnvPanel({ onBack, onSaved, fetchImpl }: ServerEnvPanelPro
     [doFetch, password, onSaved],
   )
 
+  // First-run: create the password right here (localhost-only; server-enforced).
+  const bootstrap = useCallback(
+    async (pw: string, confirm: string) => {
+      if (!doFetch) return
+      if (pw !== confirm) {
+        setUnlockError('Passwords do not match.')
+        return
+      }
+      try {
+        const res = await doFetch('/api/env/bootstrap', {
+          method: 'POST',
+          cache: 'no-store',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ password: pw }),
+        })
+        if (!res.ok) {
+          const body = await res.json().catch(() => null)
+          setUnlockError(body?.error?.message ?? `Could not create the password (${res.status}).`)
+          return
+        }
+        setUnlockError(null)
+        await unlock(pw) // provisioned — unlock with it in one motion
+      } catch {
+        setUnlockError('Could not reach the server.')
+      }
+    },
+    [doFetch, unlock],
+  )
+
   const rows = serverEnvRows(inventory?.vars)
   const unlocked = Boolean(password) && Boolean(inventory?.unlocked || password)
   const writable = inventory?.writable ?? false
-  const guidance = inventory && !writable ? REASON_GUIDANCE[inventory.reason ?? ''] : null
+  const canBootstrap = Boolean(inventory?.bootstrap) && !writable
+  const guidance =
+    inventory && !writable && !canBootstrap ? REASON_GUIDANCE[inventory.reason ?? ''] : null
   // Mirror the server's transport rule client-side: never offer a password
   // field where the password would travel in the clear to a remote host.
   const secureHere =
@@ -309,6 +343,44 @@ export function ServerEnvPanel({ onBack, onSaved, fetchImpl }: ServerEnvPanelPro
 
       {guidance ? (
         <p className="text-xs leading-relaxed text-amber-400">{guidance}</p>
+      ) : null}
+
+      {canBootstrap ? (
+        <form
+          className="flex flex-col gap-2"
+          onSubmit={(e) => {
+            e.preventDefault()
+            if (draftPassword) void bootstrap(draftPassword, draftConfirm)
+          }}
+        >
+          <p className="text-xs leading-relaxed text-amber-400">
+            First run: create the settings password for THIS server. It guards
+            every env edit here (stored as a hash in .env.local — localhost only).
+          </p>
+          <input
+            type="password"
+            value={draftPassword}
+            onChange={(e) => setDraftPassword(e.target.value)}
+            placeholder="new settings password (min 12 chars)"
+            autoComplete="new-password"
+            className="rounded-sm border border-border/60 bg-card px-3 py-2 font-mono text-xs placeholder:text-muted-foreground/50 focus:border-accent focus:outline-none"
+          />
+          <input
+            type="password"
+            value={draftConfirm}
+            onChange={(e) => setDraftConfirm(e.target.value)}
+            placeholder="repeat it"
+            autoComplete="new-password"
+            className="rounded-sm border border-border/60 bg-card px-3 py-2 font-mono text-xs placeholder:text-muted-foreground/50 focus:border-accent focus:outline-none"
+          />
+          <button
+            type="submit"
+            disabled={draftPassword.length < 12 || draftConfirm.length < 12}
+            className="self-start rounded-sm border border-border/60 px-3 py-2 text-xs tracking-wider hover:border-accent disabled:opacity-40"
+          >
+            CREATE PASSWORD
+          </button>
+        </form>
       ) : null}
 
       {writable && !password ? (

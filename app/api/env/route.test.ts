@@ -28,10 +28,30 @@ function post(body: unknown, headers: Record<string, string> = {}) {
 }
 
 describe('/api/env route', () => {
-  it('is cloaked (404) when no settings password is provisioned', async () => {
+  it('unprovisioned: local GET offers bootstrap, POST is cloaked (404)', async () => {
     vi.stubEnv('FACE_SETTINGS_PASSWORD_HASH', '')
-    expect((await GET(get())).status).toBe(404)
+    const res = await GET(get())
+    expect(res.status).toBe(200)
+    expect(await res.json()).toMatchObject({ writable: false, reason: 'no_password', bootstrap: true })
     expect((await POST(post({ changes: [] }))).status).toBe(404)
+  })
+
+  it('bootstrap glue: 400 on a short password, 409 once provisioned (no fs writes here)', async () => {
+    const { POST: BOOTSTRAP } = await import('./bootstrap/route')
+    vi.stubEnv('FACE_SETTINGS_PASSWORD_HASH', '')
+    const short = new Request('http://localhost:3100/api/env/bootstrap', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ password: 'short' }),
+    })
+    expect((await BOOTSTRAP(short)).status).toBe(400)
+    vi.stubEnv('FACE_SETTINGS_PASSWORD_HASH', HASH)
+    const again = new Request('http://localhost:3100/api/env/bootstrap', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ password: 'long enough password' }),
+    })
+    expect((await BOOTSTRAP(again)).status).toBe(409)
   })
 
   it('GET returns the presence inventory with no-store and no secret values', async () => {

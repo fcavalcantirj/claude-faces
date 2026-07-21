@@ -13,15 +13,16 @@ import { createEnvAdmin } from '@/lib/settings/env-admin'
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
-const admin = createEnvAdmin({
+/** Shared with ./bootstrap so rate limiting + the write mutex span both. */
+export const envAdmin = createEnvAdmin({
   env: process.env,
   envFilePath: path.join(process.cwd(), '.env.local'),
 })
 
 export async function GET(request: Request): Promise<Response> {
-  return admin.handleGet(request)
+  return envAdmin.handleGet(request)
 }
 
 export async function POST(request: Request): Promise<Response> {
-  return admin.handlePost(request)
+  return envAdmin.handlePost(request)
 }

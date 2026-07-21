@@ -14,14 +14,21 @@ async function openServerEnv(page: Page) {
   await expect(page.getByRole("heading", { name: "SERVER ENV" })).toBeVisible();
 }
 
-test("unprovisioned server: view opens with the no-password guidance, no password box", async ({
+test("unprovisioned localhost: first-run CREATE PASSWORD form renders (never submitted here)", async ({
   page,
 }) => {
-  // The dev rig has no FACE_SETTINGS_PASSWORD_HASH → the real /api/env 404s.
+  // The dev rig has no FACE_SETTINGS_PASSWORD_HASH → localhost GET offers
+  // bootstrap. This spec must NOT submit the form — it would provision the
+  // developer's real .env.local; the write path is unit-covered.
   await openServerEnv(page);
-  await expect(page.locator("aside")).toContainText("settings password", { timeout: 10_000 });
-  await expect(page.locator("aside")).toContainText("start.mjs");
-  await expect(page.getByPlaceholder("settings password")).toHaveCount(0);
+  await expect(page.locator("aside")).toContainText("First run", { timeout: 10_000 });
+  await expect(page.getByPlaceholder("new settings password (min 12 chars)")).toBeVisible();
+  await expect(page.getByPlaceholder("repeat it")).toBeVisible();
+  // Guard: CREATE stays disabled until both fields reach 12 chars.
+  const create = page.getByRole("button", { name: "CREATE PASSWORD" });
+  await expect(create).toBeDisabled();
+  await page.getByPlaceholder("new settings password (min 12 chars)").fill("short");
+  await expect(create).toBeDisabled();
   // The inventory still renders (all rows unset) so the user sees what exists.
   await expect(page.locator("aside")).toContainText("ANTHROPIC_API_KEY");
   await expect(page.locator("aside")).toContainText("CLAUDE_CODE_OAUTH_TOKEN");

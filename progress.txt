@@ -3240,3 +3240,26 @@ UAT: [settings] Mac: launcher in a real terminal → prompt → "password set �
 .env.local" line → unlock ON LOCALHOST:3100. [settings-pi] Pi: provision its OWN hash
 (settings-password.mjs → paste line into the Pi's .env.local + FACE_SETTINGS_ALLOW_REMOTE=1
 → restart) — dasbrow's court via the room, or Felipe over ssh.
+
+2026-07-21: [fullstack] GUI BOOTSTRAP — the settings password is now created IN THE GUI
+(Felipe's third strike on the TTY prompt was the verdict: his harness (`!` bridge) has no
+TTY, the prompt can never run there, and "use a real terminal" was fighting the owner's
+actual workflow instead of fixing it). NEW: on an UNPROVISIONED rig, a LOCALHOST request
+to GET /api/env now returns {reason:'no_password', bootstrap:true} (remote requesters
+still get the 404 cloak) and the SERVER ENV view renders a first-run CREATE PASSWORD form
+(two fields, min 12, auto-unlocks on success). POST /api/env/bootstrap: fail-closed —
+409 once a hash exists (the lock is never replaceable through its own door; rotation
+stays CLI-only), 403 on Vercel, 403 for ANY non-localhost origin (even HTTPS +
+FACE_SETTINGS_ALLOW_REMOTE — remote rigs provision via settings-password.mjs on that
+machine), Sec-Fetch-Site + content-type + size + rate-limit guards, atomic write under
+the shared mutex, password never echoed. Shared admin instance between /api/env and
+/api/env/bootstrap so the rate bucket + write mutex span both. Launcher TTY prompt kept
+as a secondary path. no_password guidance rewritten to point at the localhost GUI first.
+Verify (all RUN, $? captured directly): env-admin RED(5)→GREEN 34/34; route glue 5/5;
+npm test EXIT=0 (682); npm run verify EXIT=0; e2e server-env+degradation 7/7 (first-run
+form asserted READ-ONLY — a submitted form would provision the dev rig's real .env.local);
+npm run verify:linux EXIT=0; sync-template run (86 files).
+UAT: [settings] Felipe: open http://localhost:3100 → Settings → SERVER ENV → CREATE
+PASSWORD (twice, ≥12 chars) → auto-unlocked → set OPENAI_TTS_VOICE → badge + "saved —
+live now" → grep .env.local. Pi: same form works ONLY from the Pi's own localhost; from
+Felipe's browser it stays guidance (by design) — dasbrow provisions per room msg 679.

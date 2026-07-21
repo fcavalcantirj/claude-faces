@@ -250,10 +250,20 @@ describe('settingsAvailability', () => {
 describe('handlePost', () => {
   const CHANGE = { changes: [{ name: 'GROQ_API_KEY', value: 'gsk_test_value_123' }] }
 
-  it('404s (all methods) when no password hash is configured', async () => {
+  it('unprovisioned: POST 404s; LOCAL GET offers bootstrap; REMOTE GET stays cloaked', async () => {
     const { admin } = makeAdmin({ env: { FACE_SETTINGS_PASSWORD_HASH: undefined } })
     expect((await admin.handlePost(post(CHANGE))).status).toBe(404)
-    expect((await admin.handleGet(get())).status).toBe(404)
+    // Localhost requester is the owner's machine — reveal the bootstrap path.
+    const local = await admin.handleGet(get())
+    expect(local.status).toBe(200)
+    expect(await local.json()).toMatchObject({
+      writable: false,
+      reason: 'no_password',
+      bootstrap: true,
+    })
+    // Remote requesters still see nothing (fingerprinting cloak).
+    const remote = await admin.handleGet(get({ url: 'http://192.168.0.9:3100/api/env' }))
+    expect(remote.status).toBe(404)
   })
 
   it('403 vercel_readonly before auth — and never touches the fs', async () => {
@@ -450,6 +460,84 @@ describe('handlePost', () => {
     expect(logged).toContain('GROQ_API_KEY')
     expect(logged).not.toContain('gsk_test_value_123')
     expect(logged).not.toContain(PW)
+  })
+})
+
+// --- bootstrap (first-run password creation from the GUI, localhost-only) ----
+
+describe('handleBootstrap', () => {
+  const boot = (password: string, opts: { url?: string; headers?: Record<string, string> } = {}) =>
+    new Request(opts.url ?? 'http://localhost:3100/api/env/bootstrap', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', ...opts.headers },
+      body: JSON.stringify({ password }),
+    })
+
+  it('creates the password on a fresh LOCAL rig: writes the hash, then normal auth works', async () => {
+    const { admin, env, fs } = makeAdmin({
+      env: { FACE_SETTINGS_PASSWORD_HASH: undefined },
+      file: '# fresh rig\n',
+    })
+    const res = await admin.handleBootstrap(boot('felipes new password'))
+    expect(res.status).toBe(201)
+    const body = await res.json()
+    expect(body.ok).toBe(true)
+    expect(JSON.stringify(body)).not.toContain('felipes new password')
+    // Hash persisted (colon format) + live-applied.
+    expect(fs.files.get(FILE)).toMatch(/FACE_SETTINGS_PASSWORD_HASH=scrypt:/)
+    expect(fs.files.get(FILE)).toContain('# fresh rig')
+    expect(env.FACE_SETTINGS_PASSWORD_HASH).toMatch(/^scrypt:/)
+    // The editor now behaves as provisioned: GET writable, writes work.
+    const g = await (await admin.handleGet(get())).json()
+    expect(g.writable).toBe(true)
+    const w = await admin.handlePost(
+      new Request('http://localhost:3100/api/env', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          authorization: 'Bearer felipes new password',
+        },
+        body: JSON.stringify({ changes: [{ name: 'OPENAI_TTS_VOICE', value: 'echo' }] }),
+      }),
+    )
+    expect(w.status).toBe(200)
+  })
+
+  it('409s when a password already exists — bootstrap is first-run only', async () => {
+    const { admin, fs } = makeAdmin({ file: '' })
+    expect((await admin.handleBootstrap(boot('another password 123'))).status).toBe(409)
+    expect(fs.ops.filter((o) => o.startsWith('write'))).toHaveLength(0)
+  })
+
+  it('is LOCALHOST-only: remote origins are refused even over allowed HTTPS', async () => {
+    const { admin } = makeAdmin({
+      env: { FACE_SETTINGS_PASSWORD_HASH: undefined, FACE_SETTINGS_ALLOW_REMOTE: '1' },
+    })
+    const res = await admin.handleBootstrap(
+      boot('remote attempt 12345', {
+        url: 'http://100.82.152.25:3100/api/env/bootstrap',
+        headers: { 'x-forwarded-proto': 'https' },
+      }),
+    )
+    expect(res.status).toBe(403)
+  })
+
+  it('refused on Vercel; short passwords 400; cross-site 403; wrong content type 415', async () => {
+    const vercel = makeAdmin({ env: { FACE_SETTINGS_PASSWORD_HASH: undefined, VERCEL: '1' } })
+    expect((await vercel.admin.handleBootstrap(boot('long enough password'))).status).toBe(403)
+
+    const { admin } = makeAdmin({ env: { FACE_SETTINGS_PASSWORD_HASH: undefined } })
+    expect((await admin.handleBootstrap(boot('short'))).status).toBe(400)
+    expect(
+      (await admin.handleBootstrap(boot('long enough password', { headers: { 'sec-fetch-site': 'cross-site' } })))
+        .status,
+    ).toBe(403)
+    const textPlain = new Request('http://localhost:3100/api/env/bootstrap', {
+      method: 'POST',
+      headers: { 'content-type': 'text/plain' },
+      body: JSON.stringify({ password: 'long enough password' }),
+    })
+    expect((await admin.handleBootstrap(textPlain)).status).toBe(415)
   })
 })
 

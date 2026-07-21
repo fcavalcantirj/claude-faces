@@ -353,7 +353,25 @@ export function createEnvAdmin(deps: EnvAdminDeps) {
   }
 
   async function handleGet(request: Request): Promise<Response> {
-    if (!passwordHashOf(env)) return err(404, 'not_found', 'Not found.')
+    if (!passwordHashOf(env)) {
+      // A LOCALHOST requester is the owner's own machine: reveal the first-run
+      // bootstrap path (the GUI renders a create-password form). Remote
+      // requesters keep seeing nothing — the fingerprinting cloak holds.
+      const t = transportOf(request)
+      if (t.local && !isVercel(env)) {
+        return Response.json(
+          {
+            writable: false,
+            reason: 'no_password',
+            bootstrap: true,
+            unlocked: false,
+            vars: envVarState(env, false),
+          },
+          { headers: NO_STORE },
+        )
+      }
+      return err(404, 'not_found', 'Not found.')
+    }
     const availability = settingsAvailability(env, request)
     let unlocked = false
     const bearer = checkBearer(request)
@@ -486,5 +504,67 @@ export function createEnvAdmin(deps: EnvAdminDeps) {
     )
   }
 
-  return { handleGet, handlePost }
+  /**
+   * First-run password creation from the GUI — the no-terminal path (the
+   * launcher's TTY prompt cannot run under non-TTY harnesses). Fail-closed:
+   * LOCALHOST-only (never remote, regardless of FACE_SETTINGS_ALLOW_REMOTE),
+   * never on Vercel, only while NO password exists (409 afterwards — the lock
+   * can never be replaced through the door it guards).
+   */
+  async function handleBootstrap(request: Request): Promise<Response> {
+    if (passwordHashOf(env)) {
+      return err(409, 'already_provisioned', 'A settings password already exists. Rotation is CLI-only (settings-password.mjs).')
+    }
+    if (isVercel(env)) {
+      return err(403, 'vercel_readonly', 'Env is managed in the Vercel dashboard.')
+    }
+    const t = transportOf(request)
+    if (!t.local) {
+      return err(403, 'local_only', 'The settings password can only be created from the machine running the server (localhost). Remote rigs: settings-password.mjs on that machine.')
+    }
+    const site = request.headers.get('sec-fetch-site')
+    if (site && site !== 'same-origin' && site !== 'none') {
+      return err(403, 'cross_site', 'Cross-site requests are refused.')
+    }
+    refill()
+    if (tokens < 1) {
+      return err(429, 'rate_limited', 'Too many attempts.', { 'retry-after': String(Math.ceil(REFILL_MS / 1000)) })
+    }
+    if (!(request.headers.get('content-type') ?? '').includes('application/json')) {
+      return err(415, 'unsupported_media_type', 'Send application/json.')
+    }
+    const text = await request.text()
+    if (text.length > MAX_BODY) return err(413, 'payload_too_large', 'Body too large.')
+    let password = ''
+    try {
+      password = String((JSON.parse(text) as { password?: unknown }).password ?? '')
+    } catch {
+      return err(400, 'bad_request', 'Body must be JSON.')
+    }
+    if (password.length < 12) {
+      return err(400, 'invalid_value', 'The settings password needs at least 12 characters.')
+    }
+    const hash = hashPassword(password)
+    const result = writeLock.then(async () => {
+      let fileText = ''
+      try {
+        fileText = await fs.readFile(deps.envFilePath)
+      } catch {
+        fileText = ''
+      }
+      const nextText = applyChangesToFile(fileText, [
+        { name: 'FACE_SETTINGS_PASSWORD_HASH', value: hash },
+      ])
+      const tmpPath = `${deps.envFilePath}.tmp`
+      await fs.writeFile(tmpPath, nextText)
+      await fs.rename(tmpPath, deps.envFilePath)
+      env.FACE_SETTINGS_PASSWORD_HASH = hash
+    })
+    writeLock = result.catch(() => {})
+    await result
+    log(`[settings] BOOTSTRAP password created ${auditContext(request)}`)
+    return Response.json({ ok: true }, { status: 201, headers: NO_STORE })
+  }
+
+  return { handleGet, handlePost, handleBootstrap }
 }
