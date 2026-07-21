@@ -3263,3 +3263,25 @@ UAT: [settings] Felipe: open http://localhost:3100 → Settings → SERVER ENV �
 PASSWORD (twice, ≥12 chars) → auto-unlocked → set OPENAI_TTS_VOICE → badge + "saved —
 live now" → grep .env.local. Pi: same form works ONLY from the Pi's own localhost; from
 Felipe's browser it stays guidance (by design) — dasbrow provisions per room msg 679.
+
+2026-07-21: [fullstack] BOOTSTRAP FLOW DRIVEN END-TO-END IN A REAL BROWSER — after four
+rounds of Felipe hitting walls, the discipline changed: stop shipping-and-hoping, DRIVE
+the live rig headlessly and watch every step. RESULT (all observed live on :3100):
+CREATE PASSWORD → 201 + hash on disk ✓; auto-unlock ✓; SHOW ALL ✓; SET on
+OPENAI_TTS_VOICE → editor opens ✓; SAVE → "saved — live now" + ● SET badge + value
+visible ✓; CLEAR → line removed from .env.local ✓. HIS "dead button, no glow" ROOT
+CAUSE: the 12-char minimum silently disabled CREATE with zero feedback — a silently-
+disabled button is indistinguishable from broken. FIXES SHIPPED: live hints under the
+password fields ("N more characters needed" / "fields don't match"), disabled logic now
+includes the match check + cursor-not-allowed; auto-unlock after create RETRIES ×5
+(the .env.local write makes next-dev hot-reload env and the first unlock can race it —
+observed live), with an honest fallback message; passwordRef so the retry loop sees
+unlock success. NOTE for future drivers: OPENAI_TTS_VOICE is FREE-TEXT by design (only
+_FORMAT and AGENT_BRIDGE_KIND are enums) — two driver runs failed on a wrong assumption
+before the DOM dump settled it, and one driver run left a temp hash that was cleaned
+(rig restored to first-run, bootstrap:true re-verified; Felipe sets HIS OWN password).
+Verify (all RUN, $? captured directly): live-browser e2e all-green (see above); npm test
+EXIT=0 (682); npm run verify EXIT=0; npm run verify:linux EXIT=0; sync-template run.
+UAT: [settings] Felipe: Settings → SERVER ENV → type a 12+ char password twice (the
+hint now counts down) → CREATE → auto-unlock → set any var. Stack is RUNNING on :3100
+in first-run state.

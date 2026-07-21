@@ -8,7 +8,7 @@
 // Ordering follows lib/settings/panel-model.serverEnvRows: used-first, then
 // unset essentials, SHOW ALL for the rest.
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { serverEnvRows } from '@/lib/settings/panel-model'
 import type { EnvVarSpec } from '@/lib/settings/env-registry'
 
@@ -63,6 +63,9 @@ export function ServerEnvPanel({ onBack, onSaved, fetchImpl }: ServerEnvPanelPro
   const [loadError, setLoadError] = useState<string | null>(null)
   // The accepted password lives in memory for this page load only.
   const [password, setPassword] = useState('')
+  // Ref mirror: the bootstrap retry loop must see unlock's success immediately
+  // (the state value inside its closure is stale by design of closures).
+  const passwordRef = useRef('')
   const [draftPassword, setDraftPassword] = useState('')
   const [draftConfirm, setDraftConfirm] = useState('')
   const [unlockError, setUnlockError] = useState<string | null>(null)
@@ -121,6 +124,7 @@ export function ServerEnvPanel({ onBack, onSaved, fetchImpl }: ServerEnvPanelPro
         setInventory(body)
         if (body.unlocked) {
           setPassword(bearer)
+          passwordRef.current = bearer
           setUnlockError(null)
           setDraftPassword('')
         }
@@ -189,7 +193,16 @@ export function ServerEnvPanel({ onBack, onSaved, fetchImpl }: ServerEnvPanelPro
           return
         }
         setUnlockError(null)
-        await unlock(pw) // provisioned — unlock with it in one motion
+        // Provisioned — unlock in one motion. The .env.local write can make the
+        // DEV server hot-restart, so the first unlock may race it: retry.
+        for (let attempt = 0; attempt < 5; attempt++) {
+          await unlock(pw)
+          if (passwordRef.current) return
+          await new Promise((r) => setTimeout(r, 900))
+        }
+        setUnlockError(
+          'Password created. The server is reloading — type it in the unlock box in a few seconds.',
+        )
       } catch {
         setUnlockError('Could not reach the server.')
       }
@@ -373,10 +386,19 @@ export function ServerEnvPanel({ onBack, onSaved, fetchImpl }: ServerEnvPanelPro
             autoComplete="new-password"
             className="rounded-sm border border-border/60 bg-card px-3 py-2 font-mono text-xs placeholder:text-muted-foreground/50 focus:border-accent focus:outline-none"
           />
+          {/* A silently-disabled button reads as broken — always say WHY. */}
+          {draftPassword.length > 0 && draftPassword.length < 12 ? (
+            <span className="text-[10px] text-amber-400">
+              {12 - draftPassword.length} more character
+              {12 - draftPassword.length === 1 ? '' : 's'} needed (12 minimum).
+            </span>
+          ) : draftPassword.length >= 12 && draftConfirm.length > 0 && draftPassword !== draftConfirm ? (
+            <span className="text-[10px] text-amber-400">The two fields don’t match yet.</span>
+          ) : null}
           <button
             type="submit"
-            disabled={draftPassword.length < 12 || draftConfirm.length < 12}
-            className="self-start rounded-sm border border-border/60 px-3 py-2 text-xs tracking-wider hover:border-accent disabled:opacity-40"
+            disabled={draftPassword.length < 12 || draftPassword !== draftConfirm}
+            className="self-start rounded-sm border border-border/60 px-3 py-2 text-xs tracking-wider hover:border-accent disabled:cursor-not-allowed disabled:opacity-40"
           >
             CREATE PASSWORD
           </button>
