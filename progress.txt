@@ -3518,3 +3518,26 @@ UAT: [skill-install] dasbrow redeploys brownet-coder (+ the Pi, closing #679): t
 launcher output shows each rig's one-time password; dasbrow relays them to Felipe
 directly (NEVER via the room); Felipe unlocks SERVER ENV over the tailscale HTTPS URL
 (rigs also need FACE_SETTINGS_ALLOW_REMOTE=1).
+
+2026-07-22: [docs] LOUDNESS PASS ON THE AUTO-PASSWORD (Felipe: "Make sure readme and
+skill are very loud about this. try with a fresh agent"). README 60-second start gains
+a headline blockquote — "🔑 First run prints your settings password — SAVE IT" — with
+human-installer and agent-installer branches; the three stale "first-run prompt"
+mentions (quickstart aside, keys-detail, env table) rewritten to the auto-generate
+truth. SKILL.md: the provisioning paragraph promoted to a "🔑 REQUIRED STEP" blockquote
+DIRECTLY under the start command — capture-and-deliver framed as PART OF THE INSTALL,
+with the lockout consequence spelled out (330/500 lines). VERIFIED BY COLD READ, per
+Felipe's instruction: a FRESH agent (zero session context, prompt never mentions
+passwords) was asked to plan a deployment from the skill docs alone — its report
+independently led with capturing the AUTO-GENERATED block, quoted the REQUIRED STEP
+by name, called private delivery "part of the install", and correctly deduced THIS
+rig would not print one (hash already provisioned). The docs steer a zero-context
+installer. FINDING SURFACED BY THE COLD READER (pre-existing, NOT touched — Felipe's
+call): next.config.mjs allowedDevOrigins enumerates only LAN IPv4s, so a DEV-mode rig
+served over a ts.net hostname may half-load (blocked /_next/* cross-origin); prod
+builds unaffected; unproven live.
+Verify (all RUN, $? captured directly): skill-frontmatter test green; skill smoke
+EXIT=0; npm test EXIT=0; npm run verify EXIT=0; npm run verify:linux EXIT=0
+(README/SKILL.md are not templated — no sync needed).
+UAT: [skill-install] unchanged — dasbrow's redeploys (room #683) exercise the loud
+path for real.

@@ -44,6 +44,23 @@ scaffolded app. Then, from the directory that holds the app:
 node skill/agent-face/scripts/start.mjs      # app on :3000, bridge on :8787
 ```
 
+> ### 🔑 REQUIRED STEP — first run prints a one-time settings password
+>
+> When no `FACE_SETTINGS_PASSWORD_HASH` exists in `.env.local`, the launcher
+> **auto-generates** a password, writes its hash, and prints the plaintext
+> **exactly once** in a `settings: AUTO-GENERATED …` stdout block. It is never
+> stored and never printed again.
+>
+> **If you are an agent installing this skill, this is part of the install:
+> capture that password from the launcher output and deliver it to your owner**
+> through a direct channel. Never commit it; never post it to logs, rooms, or
+> issues others can read. Without it the owner is locked out of the GUI env
+> editor (Settings → SERVER ENV) on this rig and must ssh to recover.
+>
+> Overrides: `--password <value>` provisions a chosen password;
+> `--no-password-prompt` skips provisioning (the env editor stays off).
+> Rotation: `node skill/agent-face/scripts/settings-password.mjs`.
+
 It installs missing dependencies on first run (app AND bridge), frees the
 ports, starts the local **agent bridge** if the checkout ships one (the
 agent-faces repo does, under `bridge/`; the packaged app template
@@ -52,18 +69,6 @@ deliberately does not — see `bridge/README.md` for why), wires `.env.local`
 and opens the face in your browser. **No bridge and no keys still opens a
 working face** — voice in/out run entirely in the browser; a brain (key or
 bridge) is only needed for intelligent replies.
-
-**First run auto-provisions the settings password.** When no
-`FACE_SETTINGS_PASSWORD_HASH` exists in `.env.local`, the launcher generates
-a random password, writes its hash, and prints the plaintext **exactly once**
-in a `settings: AUTO-GENERATED …` block. If you are an agent installing this
-skill: **capture that password and deliver it to the owner** through your
-direct channel — never commit it, and never post it to logs, rooms, or issues
-others can read. It unlocks Settings → SERVER ENV on this server only; the
-owner rotates it anytime with `scripts/settings-password.mjs`. Pass
-`--password <value>` to provision a chosen password instead, or
-`--no-password-prompt` to skip provisioning entirely (the GUI env editor
-stays off on this rig until provisioned another way).
 
 **"Frees the ports" is identity-scoped:** only a process the launcher can
 tie to THIS app (a stale dev server or bridge from a previous run, judged by
