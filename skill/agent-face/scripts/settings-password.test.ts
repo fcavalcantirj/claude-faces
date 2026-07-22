@@ -6,6 +6,7 @@
 import { PassThrough } from "node:stream";
 import { describe, expect, it } from "vitest";
 import {
+  generatePassword,
   hashPassword,
   promptForPassword,
   upsertPasswordHashLine,
@@ -45,6 +46,18 @@ describe("settings-password.mjs", () => {
     await expect(
       Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error("HUNG")), 2000))]),
     ).resolves.toBe("");
+  });
+
+  it("generatePassword: 20 lowercase hex chars, unique per call, round-trips the verifier", () => {
+    // The deterministic-install password: unambiguous, phone-typeable, and
+    // env-serialization-safe (no $/quotes/backslashes by construction).
+    const pw = generatePassword();
+    expect(pw).toMatch(/^[0-9a-f]{20}$/);
+    expect(pw.length).toBeGreaterThanOrEqual(MIN_PASSWORD_LENGTH);
+    expect(generatePassword()).not.toBe(pw);
+    // PARITY extension: an auto-generated password must unlock through the
+    // app's TS verifier exactly like a human-chosen one.
+    expect(verifyPassword(pw, hashPassword(pw))).toBe(true);
   });
 
   it("upsertPasswordHashLine appends when missing and replaces only its own line", () => {

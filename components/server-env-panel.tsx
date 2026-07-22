@@ -36,7 +36,7 @@ export interface ServerEnvPanelProps {
 
 const REASON_GUIDANCE: Record<string, string> = {
   no_password:
-    'No settings password is provisioned on THIS server. From the machine running it, open http://localhost:<port> and create one right here in SERVER ENV — or generate a FACE_SETTINGS_PASSWORD_HASH line with node skill/agent-face/scripts/settings-password.mjs and add it to that machine’s .env.local, then restart.',
+    'No settings password is provisioned on THIS server. The launcher (start.mjs) auto-generates one on first run and prints it ONCE in its output — check the launcher logs, or ask whoever deployed this rig for it. Otherwise: from the machine running it, open http://localhost:<port> and create one right here in SERVER ENV — or generate a FACE_SETTINGS_PASSWORD_HASH line with node skill/agent-face/scripts/settings-password.mjs and add it to that machine’s .env.local, then restart.',
   readonly_platform:
     'Read-only here: on Vercel, env vars are managed in your project dashboard (Settings → Environment Variables); changes apply on redeploy.',
   insecure_transport:

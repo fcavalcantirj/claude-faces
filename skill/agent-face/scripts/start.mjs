@@ -21,13 +21,13 @@
 // bill metered instead of using the subscription), and the whole point of a
 // one-command launcher is not stalling on that guard.
 
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { spawn, spawnSync } from "node:child_process";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  generatePassword,
   hashPassword,
-  promptForPassword,
   upsertPasswordHashLine,
 } from "./settings-password.mjs";
 
@@ -94,6 +94,79 @@ export function buildBridgeEnv(env, { yolo, fileEnv = {} }) {
   delete child.ANTHROPIC_AUTH_TOKEN;
   if (yolo) child.CLAUDE_BRIDGE_PERMISSION_MODE = "bypassPermissions";
   return child;
+}
+
+/**
+ * DETERMINISTIC first-run settings-password provisioning (exported for tests).
+ * The GUI env editor stays OFF until a FACE_SETTINGS_PASSWORD_HASH exists, and
+ * agents install this skill headlessly — a TTY prompt can never be the gate
+ * (it silently skipped under every non-TTY harness; two live bugs came from
+ * that branch). Policy:
+ *   • an existing hash is NEVER touched (rotation is settings-password.mjs
+ *     or the GUI — the lock is not replaceable from here);
+ *   • --password <v> provisions that value (plaintext never echoed);
+ *   • --no-password-prompt opts out entirely (this rig's editor stays off);
+ *   • otherwise AUTO-GENERATE, write the hash, and print the plaintext ONCE —
+ *     the installing agent must capture it and deliver it to the owner.
+ * The write is same-dir tmp + rename (atomic), mirroring env-admin.ts, so a
+ * racing GUI bootstrap can never observe a half-written file.
+ *
+ * @param {{
+ *   envPath: string,
+ *   password?: string | null,
+ *   passwordPrompt?: boolean,
+ *   generate?: () => string,
+ *   log?: (line: string) => void,
+ *   error?: (line: string) => void,
+ * }} opts
+ */
+export function provisionSettingsPassword({
+  envPath,
+  password = null,
+  passwordPrompt = true,
+  generate = generatePassword,
+  log = console.log,
+  error = console.error,
+}) {
+  const content = existsSync(envPath) ? readFileSync(envPath, "utf8") : "";
+  const hasHash = content
+    .split("\n")
+    .some((l) => l.trim().startsWith("FACE_SETTINGS_PASSWORD_HASH="));
+  if (hasHash) return { provisioned: false, generated: false, reason: "exists" };
+
+  if (!password && !passwordPrompt) {
+    log(
+      "settings: no password set — the GUI env editor stays off on THIS server.\n" +
+        "  Each deployment (Mac, Pi, …) needs its own password in its own .env.local.\n" +
+        "  Later: node skill/agent-face/scripts/settings-password.mjs",
+    );
+    return { provisioned: false, generated: false, reason: "skipped" };
+  }
+
+  const generated = !password;
+  const pw = password ?? generate();
+  try {
+    const tmpPath = `${envPath}.${process.pid}.tmp`;
+    writeFileSync(tmpPath, upsertPasswordHashLine(content, hashPassword(pw)));
+    renameSync(tmpPath, envPath);
+  } catch (err) {
+    error(`settings: ${String(err?.message ?? err)} — skipped.`);
+    return { provisioned: false, generated: false, reason: "error" };
+  }
+  if (generated) {
+    log(
+      "settings: AUTO-GENERATED settings password for THIS server (Settings → SERVER ENV):\n" +
+        "settings:\n" +
+        `settings:     ${pw}\n` +
+        "settings:\n" +
+        "settings: Save it now — it is printed only this once and never stored in plaintext.\n" +
+        "settings: Deliver it to the owner. Rotate anytime: node skill/agent-face/scripts/settings-password.mjs\n" +
+        `settings: password hash → ${envPath} — SERVER ENV unlocks on THIS server.`,
+    );
+  } else {
+    log(`settings: password set → ${envPath} — SERVER ENV unlocks on THIS server.`);
+  }
+  return { provisioned: true, generated };
 }
 
 /** Minimal KEY=value reader for .env.local (comparison/forwarding only). */
@@ -210,38 +283,11 @@ async function main() {
     return;
   }
 
-  // Settings-password provisioning (first run): the GUI env editor stays OFF
-  // until a FACE_SETTINGS_PASSWORD_HASH exists — prompt once, skippable, and
-  // an existing line is never touched.
-  const settingsEnvPath = join(args.appDir, ".env.local");
-  const settingsEnvContent = existsSync(settingsEnvPath)
-    ? readFileSync(settingsEnvPath, "utf8")
-    : "";
-  const hasSettingsHash = settingsEnvContent
-    .split("\n")
-    .some((l) => l.trim().startsWith("FACE_SETTINGS_PASSWORD_HASH="));
-  if (!hasSettingsHash) {
-    let pw = args.password;
-    if (!pw && args.passwordPrompt && process.stdin.isTTY) {
-      pw = await promptForPassword(
-        "Set a settings password for GUI env editing (min 12 chars, Enter to skip): ",
-      );
-    }
-    if (pw) {
-      try {
-        writeFileSync(settingsEnvPath, upsertPasswordHashLine(settingsEnvContent, hashPassword(pw)));
-        console.log(`settings: password set → ${settingsEnvPath} — SERVER ENV unlocks on THIS server.`);
-      } catch (err) {
-        console.error(`settings: ${String(err?.message ?? err)} — skipped.`);
-      }
-    } else if (args.passwordPrompt) {
-      console.log(
-        "settings: no password set — the GUI env editor stays off on THIS server.\n" +
-          "  Each deployment (Mac, Pi, …) needs its own password in its own .env.local.\n" +
-          "  Later: node skill/agent-face/scripts/settings-password.mjs",
-      );
-    }
-  }
+  provisionSettingsPassword({
+    envPath: join(args.appDir, ".env.local"),
+    password: args.password,
+    passwordPrompt: args.passwordPrompt,
+  });
 
   const bridgeDir = join(args.appDir, "bridge");
   const bridgeAvailable = existsSync(join(bridgeDir, "src", "server.mjs"));

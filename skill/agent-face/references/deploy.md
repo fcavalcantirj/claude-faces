@@ -47,6 +47,14 @@ docker build -t agent-faces .
 docker run --rm -p 3000:3000 --env-file .env.local agent-faces
 ```
 
+**Settings password in containers:** the container runs `server.js` directly —
+the launcher's first-run auto-provisioning never fires here. Provision the GUI
+env editor by adding a `FACE_SETTINGS_PASSWORD_HASH=` line to the host-side
+`.env.local` (`node skill/agent-face/scripts/settings-password.mjs '<password>'`
+prints it) before `docker compose up`, or open `http://localhost:<port>` from
+the container's own host and create one in Settings → SERVER ENV (the
+localhost-only first-run bootstrap).
+
 ### Wire Mode B over the private network (no tunnel)
 
 Set these in `.env.local` (all server-side only):

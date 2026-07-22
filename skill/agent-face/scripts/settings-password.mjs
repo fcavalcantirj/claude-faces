@@ -22,6 +22,17 @@ const SCRYPT = { N: 16384, r: 8, p: 1 };
 const KEY_LEN = 32;
 
 /**
+ * The deterministic-install password: 20 lowercase hex chars (80 bits).
+ * Hex on purpose — unambiguous to read aloud, typeable on a phone, and safe
+ * through every env serialization (no $/quotes/backslashes by construction).
+ * Used by the launcher's first-run auto-provisioning; owners rotate via this
+ * CLI or the SERVER ENV GUI.
+ */
+export function generatePassword() {
+  return randomBytes(10).toString("hex");
+}
+
+/**
  * `scrypt:N:r:p:<salt b64url>:<hash b64url>` — same format as env-admin.ts.
  * Colon-separated ON PURPOSE: @next/env dotenv-expansion eats `$`-segments in
  * .env.local values (a $-separated hash loaded back as "scrypt6384").

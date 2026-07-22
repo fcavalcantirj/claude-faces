@@ -3477,3 +3477,44 @@ message only). Felipe retired the "Fugu" persona name minutes after the original
 name lived only in the shared project memory (now updated; the face's own brain reads
 the same memory, so the next fresh conversation drops it). reference/fugu-face/ stays:
 that's the vendored renderer's directory, provenance not persona.
+
+2026-07-21: [skill] DETERMINISTIC INSTALL — THE SETTINGS PASSWORD PROVISIONS ITSELF
+(Felipe: "make skill deterministic — upon install, auto generate and just output to
+agent; if he wants, he can change"; prompted by the brownet-coder wall: agents deploy
+headless, the TTY prompt silently skipped, every agent-deployed rig landed
+unprovisioned and needed a human over ssh — the exact #679 dance). WHAT CHANGED:
+start.mjs's TTY-gated prompt is GONE (that isTTY branch produced two live bugs: the
+EOF hang and the silent non-TTY skip); first run without a hash now ALWAYS
+auto-generates (new settings-password.mjs export generatePassword(): 20 lowercase hex
+chars, 80 bits, phone-typeable, env-serialization-safe by construction — parity test
+extends: a generated password round-trips the TS verifier), writes the hash ATOMICALLY
+(same-dir tmp+rename, aligned with env-admin.ts — the launcher's write was the one
+non-atomic .env.local writer left), and prints the plaintext EXACTLY ONCE in a
+"settings: AUTO-GENERATED" block with capture-and-deliver framing. --password <v>
+still wins (plaintext never echoed); --no-password-prompt still opts out (now with the
+honest skip message instead of silence — our house stack command keeps working
+unchanged). The whole block is an exported provisionSettingsPassword() unit-tested
+directly (repo's pure-transform idiom) + one spawnSync e2e that runs the REAL launcher
+in a mkdtemp rig (provisions, prints once, then exits 3 on a decoy'd bridge port — no
+app boot). SKILL.MD (325/500 lines): installing agents now SEE the contract — first
+run prints the password once; capture it and deliver to the owner via a direct channel,
+never commit/post it; rotation via settings-password.mjs; --password/--no-password-
+prompt documented (they never were); env-table row reworded; containers called out
+(no launcher in the image — settings-password.mjs or the localhost GUI bootstrap;
+deploy.md gains the how-to). FRONTMATTER FIX (dasbrow's finding, issue #1): the
+non-spec top-level version: key moved under metadata: — and PINNED by a new
+dependency-free test (skill-frontmatter.test.ts: allowed-keys ⊆ spec set, name/
+description required, no reserved words in name, ≤500 lines) so the official
+quick_validate can never fail on us again; Felipe's standing fleet-validation step,
+adopted into the gates. GUI guidance truth-up: the no_password message now points at
+the launcher output FIRST ("auto-generates and prints it ONCE — check the launcher
+logs or ask whoever deployed this rig").
+Verify (all RUN, $? captured directly): RED 8 (generatePassword missing;
+provisionSettingsPassword missing ×5 incl. e2e; frontmatter version key) → GREEN;
+skill scripts 109/109; npm run typecheck EXIT=0; npm test EXIT=0; npm run verify
+EXIT=0 (6 gates incl. skill smoke + template parity); npm run verify:linux EXIT=0;
+sync-template run (1 file).
+UAT: [skill-install] dasbrow redeploys brownet-coder (+ the Pi, closing #679): the
+launcher output shows each rig's one-time password; dasbrow relays them to Felipe
+directly (NEVER via the room); Felipe unlocks SERVER ENV over the tailscale HTTPS URL
+(rigs also need FACE_SETTINGS_ALLOW_REMOTE=1).

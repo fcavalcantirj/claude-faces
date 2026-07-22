@@ -8,12 +8,17 @@
 
 import { describe, it, expect } from "vitest";
 import { spawnSync, spawn, type ChildProcess } from "node:child_process";
-import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import net from "node:net";
-import { buildBridgeEnv, ensureEnvLocalLines, parseStartArgs } from "./start.mjs";
+import {
+  buildBridgeEnv,
+  ensureEnvLocalLines,
+  parseStartArgs,
+  provisionSettingsPassword,
+} from "./start.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const START = join(HERE, "start.mjs");
@@ -220,6 +225,145 @@ describe("start.mjs CLI contract", () => {
     expect(r.status).not.toBe(0);
     expect(r.stderr + r.stdout).toMatch(/unknown/i);
   });
+});
+
+describe("deterministic settings-password provisioning", () => {
+  // The install path agents actually hit: headless, no TTY, no flags. The
+  // password must be auto-generated, hashed into .env.local, and the plaintext
+  // printed EXACTLY once for the installing agent to capture and relay.
+  const fresh = () => mkdtempSync(join(tmpdir(), "start-provision-"));
+  const FIXED = "aabbccddeeff00112233";
+
+  it("auto-generates, writes the hash atomically, and prints the plaintext exactly once", () => {
+    const dir = fresh();
+    const envPath = join(dir, ".env.local");
+    const lines: string[] = [];
+    const out = provisionSettingsPassword({
+      envPath,
+      password: null,
+      passwordPrompt: true,
+      generate: () => FIXED,
+      log: (s: string) => lines.push(s),
+    });
+    expect(out).toMatchObject({ provisioned: true, generated: true });
+    const env = readFileSync(envPath, "utf8");
+    expect(env).toMatch(
+      /^FACE_SETTINGS_PASSWORD_HASH=scrypt:\d+:\d+:\d+:[A-Za-z0-9_-]+:[A-Za-z0-9_-]+$/m,
+    );
+    const joined = lines.join("\n");
+    expect(joined).toContain("AUTO-GENERATED");
+    expect(joined.match(new RegExp(FIXED, "g"))).toHaveLength(1);
+    expect(joined).toMatch(/only this once/i);
+    expect(joined).toContain("settings-password.mjs"); // the rotation pointer
+    // Atomic write: same-dir tmp + rename leaves no droppings.
+    expect(readdirSync(dir)).toEqual([".env.local"]);
+  });
+
+  it("an existing hash is never touched and nothing is printed", () => {
+    const dir = fresh();
+    const envPath = join(dir, ".env.local");
+    const original = "FACE_SETTINGS_PASSWORD_HASH=scrypt:1:1:1:a:b\nOTHER=1\n";
+    writeFileSync(envPath, original);
+    const lines: string[] = [];
+    const out = provisionSettingsPassword({
+      envPath,
+      password: null,
+      passwordPrompt: true,
+      generate: () => FIXED,
+      log: (s: string) => lines.push(s),
+    });
+    expect(out.provisioned).toBe(false);
+    expect(readFileSync(envPath, "utf8")).toBe(original);
+    expect(lines).toHaveLength(0);
+  });
+
+  it("--password wins: no generation, the plaintext is never echoed", () => {
+    const dir = fresh();
+    const envPath = join(dir, ".env.local");
+    const lines: string[] = [];
+    let generated = 0;
+    const out = provisionSettingsPassword({
+      envPath,
+      password: "my explicit pass 123",
+      passwordPrompt: true,
+      generate: () => {
+        generated += 1;
+        return FIXED;
+      },
+      log: (s: string) => lines.push(s),
+    });
+    expect(out).toMatchObject({ provisioned: true, generated: false });
+    expect(generated).toBe(0);
+    const joined = lines.join("\n");
+    expect(joined).not.toContain("my explicit pass 123");
+    expect(joined).toContain("password set");
+    expect(readFileSync(envPath, "utf8")).toContain("FACE_SETTINGS_PASSWORD_HASH=scrypt:");
+  });
+
+  it("--no-password-prompt skips: nothing written, honest skip message", () => {
+    const dir = fresh();
+    const envPath = join(dir, ".env.local");
+    const lines: string[] = [];
+    const out = provisionSettingsPassword({
+      envPath,
+      password: null,
+      passwordPrompt: false,
+      generate: () => FIXED,
+      log: (s: string) => lines.push(s),
+    });
+    expect(out.provisioned).toBe(false);
+    expect(existsSync(envPath)).toBe(false);
+    expect(lines.join("\n")).toMatch(/no password set/);
+  });
+
+  it("a second run is a no-op (idempotent — the lock is never replaced from here)", () => {
+    const dir = fresh();
+    const envPath = join(dir, ".env.local");
+    provisionSettingsPassword({
+      envPath,
+      password: null,
+      passwordPrompt: true,
+      generate: () => FIXED,
+      log: () => {},
+    });
+    const first = readFileSync(envPath, "utf8");
+    const lines: string[] = [];
+    const again = provisionSettingsPassword({
+      envPath,
+      password: null,
+      passwordPrompt: true,
+      generate: () => "ffeeddccbbaa99887766",
+      log: (s: string) => lines.push(s),
+    });
+    expect(again.provisioned).toBe(false);
+    expect(readFileSync(envPath, "utf8")).toBe(first);
+    expect(lines).toHaveLength(0);
+  });
+
+  it("e2e: a headless (non-TTY) first run provisions and prints the one-time password", async () => {
+    // Mirror the bridge-port-refusal rig: provisioning happens BEFORE the port
+    // check, so the run provisions, then exits 3 on the busy port — bounded,
+    // no app boot, real launcher, real stdout.
+    const appDir = mkdtempSync(join(tmpdir(), "start-provision-e2e-"));
+    mkdirSync(join(appDir, "bridge", "src"), { recursive: true });
+    mkdirSync(join(appDir, "bridge", "node_modules"), { recursive: true });
+    mkdirSync(join(appDir, "node_modules"), { recursive: true });
+    writeFileSync(join(appDir, "bridge", "src", "server.mjs"), "setInterval(()=>{},1e9);\n");
+    writeFileSync(join(appDir, "package.json"), JSON.stringify({ name: "x", private: true }));
+    const bridgePort = await getFreePort();
+    const decoy = await spawnDecoy(bridgePort, tmpdir());
+    try {
+      const r = runStart([appDir, "--bridge-port", String(bridgePort), "--no-open"]);
+      expect(r.status).toBe(3);
+      const env = readFileSync(join(appDir, ".env.local"), "utf8");
+      expect(env).toMatch(/^FACE_SETTINGS_PASSWORD_HASH=scrypt:/m);
+      expect(r.stdout).toContain("AUTO-GENERATED");
+      const plaintexts = r.stdout.match(/\b[0-9a-f]{20}\b/g) ?? [];
+      expect(plaintexts).toHaveLength(1);
+    } finally {
+      decoy.kill("SIGKILL");
+    }
+  }, 20000);
 });
 
 describe("settings password provisioning (args + bridge env pass-through)", () => {
